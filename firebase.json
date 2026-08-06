@@ -1,0 +1,6 @@
+{
+  "firestore": {
+    "rules":   "lib/firebase/security-rules.txt",
+    "indexes": "lib/firebase/firestore-indexes.json"
+  }
+}

@@ -1,0 +1,172 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Admin {
+  id           String     @id @default(uuid())
+  email        String     @unique
+  passwordHash String
+  name         String
+  role         Role       @default(editor)
+  createdAt    DateTime   @default(now())
+  lastLogin    DateTime?
+  auditLogs    AuditLog[]
+}
+
+model Page {
+  id              String    @id @default(uuid())
+  slug            String    @unique
+  title           String
+  metaDescription String?   @db.Text
+  sectionsJson    Json      @default("[]")
+  isPublished     Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+}
+
+model Media {
+  id         String    @id @default(uuid())
+  filename   String
+  url        String    @db.Text
+  mimeType   String
+  sizeBytes  Int
+  uploadedBy String
+  createdAt  DateTime  @default(now())
+  deletedAt  DateTime?
+}
+
+model Settings {
+  id             Int      @id @default(1)
+  siteName       String   @default("My Site")
+  logoUrl        String?  @db.Text
+  primaryColor   String   @default("#3B82F6")
+  socialLinksJson Json    @default("{}")
+  contactEmail   String?
+  footerText     String?  @db.Text
+
+  // BUG FIX: these fields were previously missing from this model entirely,
+  // even though lib/validators/schemas.js's settingsSchema, the settings
+  // admin page's save handler, and the Firebase-mode settings store have
+  // always read/written all of them. Because the model didn't have columns
+  // for them, /api/settings silently dropped every one of these values on
+  // save in server mode — the UI would say "Settings saved successfully"
+  // while payment/GST/maintenance configuration was discarded.
+  razorpayKeyId        String  @default("")
+  razorpayKeySecret    String  @default("")
+  razorpayMerchantName String  @default("")
+  razorpaySupportEmail String  @default("")
+  platformFeePercent   Float   @default(10)
+  platformFeeType      String  @default("percent")  // percent | fixed
+  platformFixed        Float   @default(0)
+  gstPercent           Float   @default(18)
+  gstModeEnabled       Boolean @default(false)
+  withdrawalFee        Float   @default(11)
+  maintenanceMode      Boolean @default(false)
+  maintenanceMessage   String  @default("We are performing scheduled maintenance. Please check back soon.") @db.Text
+  estimatedReturn      String  @default("")
+
+  updatedAt      DateTime @updatedAt
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  adminId    String
+  action     String
+  collection String
+  documentId String
+  beforeJson Json?
+  afterJson  Json?
+  timestamp  DateTime @default(now())
+  admin      Admin    @relation(fields: [adminId], references: [id])
+}
+
+model Category {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?  @db.Text
+  icon        String   @default("🔧")
+  status      String   @default("active")  // active | pending | disabled
+  submittedBy String?  // uid of worker who suggested it (null = admin-created)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+enum Role {
+  superadmin
+  editor
+}
+
+model ErrorLog {
+  id         String   @id @default(uuid())
+
+  // ── Spec-required fields ────────────────────────────────────────────────
+  errorType  String   @default("Error")
+  message    String   @db.Text
+  stackTrace String   @db.Text
+  fileName   String   @default("unknown")
+  route      String   @default("/")
+  timestamp  DateTime @default(now())
+  userId     String   @default("anonymous")
+  role       String   @default("unknown")
+  browser    String   @default("unknown")
+  device     String   @default("unknown")
+
+  // ── Extended fields ──────────────────────────────────────────────────────
+  source     String   @default("unknown")
+  errorCode  String   @default("")
+  viewport   String   @default("?")
+  fn         String   @default("unknown")
+  line       String   @default("?")
+
+  @@index([errorType, timestamp(sort: Desc)])
+  @@index([route,     timestamp(sort: Desc)])
+  @@index([userId,    timestamp(sort: Desc)])
+  @@index([role,      timestamp(sort: Desc)])
+}
+
+model ErrorReport {
+  id              String    @id @default(uuid())
+
+  // ── Error details ──────────────────────────────────────────────────────
+  message         String    @db.Text
+  type            String    @default("Error")
+  code            String    @default("")
+  stack           String    @db.Text
+  file            String    @default("unknown")
+  line            String    @default("?")
+  fn              String    @default("unknown")
+  componentStack  String    @db.Text
+  source          String    @default("unknown")
+
+  // ── Page context ───────────────────────────────────────────────────────
+  route           String    @default("/")
+  browser         String    @default("unknown")
+  device          String    @default("unknown")
+  screen          String    @default("?")
+  viewport        String    @default("?")
+
+  // ── User context ───────────────────────────────────────────────────────
+  userId          String    @default("anonymous")
+  role            String    @default("unknown")
+
+  // ── Timestamps ─────────────────────────────────────────────────────────
+  errorOccurredAt DateTime
+  reportedAt      DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // ── Admin workflow ─────────────────────────────────────────────────────
+  status          String    @default("new")   // new | investigating | fixed | closed
+  notes           String    @db.Text          @default("")
+  assignee        String?
+
+  @@index([status, reportedAt(sort: Desc)])
+  @@index([route,  reportedAt(sort: Desc)])
+  @@index([role,   reportedAt(sort: Desc)])
+  @@index([userId, reportedAt(sort: Desc)])
+}

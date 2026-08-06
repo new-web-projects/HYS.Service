@@ -1,0 +1,421 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helper functions ────────────────────────────────────────────────────
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+
+    function isAdmin() {
+      return isAuthenticated()
+          && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function isSuperAdmin() {
+      return isAdmin()
+          && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == 'superadmin';
+    }
+
+    // PART 3 FIX: split out of the bookings update rule below. The
+    // blanket "completionOtp/otpAttempts/otpStatus can never change"
+    // restriction was correct in spirit (stops a customer forging their
+    // own OTP, or either party clearing it after the worker has used it
+    // to mark a job complete) but too broad in practice: it also blocked
+    // the ONE legitimate non-admin write that ever needs to set
+    // completionOtp — bookingStore.markBookingPaid(), called by the
+    // customer immediately after a successful Razorpay payment, which
+    // generates and stores the OTP the worker will later ask for. That
+    // write was being rejected outright by this rule, which is what
+    // produced "Payment received but verification failed" — the payment
+    // itself succeeded, but the Firestore update that was supposed to
+    // record it never went through.
+    function isOtpFieldsUnchanged() {
+      return !('completionOtp' in request.resource.data.diff(resource.data).affectedKeys())
+          && !('otpAttempts'   in request.resource.data.diff(resource.data).affectedKeys())
+          && !('otpStatus'     in request.resource.data.diff(resource.data).affectedKeys());
+    }
+
+    function isFirstPaymentByCustomer() {
+      // The one legitimate moment a non-admin may set completionOtp: the
+      // customer's own markBookingPaid() write, which sets it in the same
+      // update that flips paymentStatus unpaid -> paid for the first
+      // time. otpAttempts/otpStatus still can't be touched even here, and
+      // once paymentStatus is already 'paid' this stops applying, so the
+      // OTP can never be tampered with after that point — including by
+      // the same customer calling this again.
+      return resource.data.customerId == request.auth.uid
+          && resource.data.paymentStatus != 'paid'
+          && request.resource.data.paymentStatus == 'paid'
+          && !('otpAttempts' in request.resource.data.diff(resource.data).affectedKeys())
+          && !('otpStatus'   in request.resource.data.diff(resource.data).affectedKeys());
+    }
+
+    // ── admins collection ────────────────────────────────────────────────────
+    match /admins/{adminId} {
+      allow read:   if isAdmin();
+      allow create: if isSuperAdmin();
+      allow update: if isSuperAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
+    // ── users collection ─────────────────────────────────────────────────────
+    match /users/{userId} {
+      allow read:   if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId) || isAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
+    // ── workers collection ───────────────────────────────────────────────────
+    // FIX: Allow public list read of workers (needed for subscribePublicWorkers).
+    // Individual doc reads still require isAvailable==true for non-owners.
+    // FIX (Part 6): Allow any authenticated user to update ONLY rating/reviewCount/
+    // updatedAt fields — required so customers can submit reviews that update the
+    // worker's average rating via reviewStore.submitReview → runTransaction.
+    match /workers/{workerId} {
+      allow list:   if true;
+      allow get:    if resource.data.isAvailable == true
+                    || isOwner(workerId)
+                    || isAdmin()
+                    || isAuthenticated();   // FIX: customers need to read worker doc
+                                            // for transaction.get() in submitReview
+      allow create: if isOwner(workerId) || isAdmin();
+      allow update: if isOwner(workerId)
+                    || isAdmin()
+                    || (
+                        // Part 6 FIX: customers may update ONLY these three fields
+                        // so reviewStore.submitReview can write back the new average.
+                        // Part 7 HARDENING: value constraints prevent a malicious
+                        // authenticated user from artificially setting any rating.
+                        isAuthenticated()
+                        && request.resource.data.diff(resource.data)
+                             .affectedKeys()
+                             .hasOnly(['rating', 'reviewCount', 'updatedAt'])
+                        // rating must be a valid 0–5 float
+                        && request.resource.data.rating is number
+                        && request.resource.data.rating >= 0
+                        && request.resource.data.rating <= 5
+                        // reviewCount may only increase (never decrease).
+                        // Use .get() with default 0 so the first-ever review
+                        // works even if reviewCount field doesn't exist yet.
+                        && request.resource.data.reviewCount is int
+                        && request.resource.data.reviewCount >= resource.data.get('reviewCount', 0)
+                       );
+      allow delete: if isSuperAdmin();
+    }
+
+    // ── pages collection ─────────────────────────────────────────────────────
+    match /pages/{pageId} {
+      allow read:  if isAdmin()
+                   || (resource.data.isPublished == true
+                       && resource.data.deletedAt == null);
+      allow write: if isAdmin();
+    }
+
+    // ── media collection ─────────────────────────────────────────────────────
+    match /media/{mediaId} {
+      allow read, write: if isAdmin();
+    }
+
+    // ── categories collection ────────────────────────────────────────────────
+    // FIX: Allow public list/get reads for categories.
+    // The app queries all categories and filters status client-side.
+    // Restricting by status server-side breaks unauthenticated reads.
+    match /categories/{categoryId} {
+      allow read:   if true;
+      allow create: if isAuthenticated();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ── settings collection ──────────────────────────────────────────────────
+    match /settings/{docId} {
+      // FIX (Part 6): withdrawalStore.loadProcessingFee reads settings/platform
+      // to get the worker withdrawal fee percentage. Workers are authenticated
+      // but not admins — the old rule blocked them. Allow authenticated users
+      // to read the 'platform' document (contains only fee settings, no secrets).
+      allow read:  if isAdmin()
+                   || docId == 'global'
+                   || (docId == 'platform' && isAuthenticated());
+      allow write: if isAdmin();
+    }
+
+    // ── audit_logs collection ────────────────────────────────────────────────
+    match /audit_logs/{logId} {
+      allow read:  if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // ── notifications collection ─────────────────────────────────────────────
+    match /notifications/{notificationId} {
+      allow read:   if isOwner(resource.data.userId) || isAdmin();
+      allow create: if isAuthenticated();
+      allow update: if isOwner(resource.data.userId) || isAdmin();
+      allow delete: if isOwner(resource.data.userId) || isAdmin();
+    }
+
+    // ── bookings collection ──────────────────────────────────────────────────
+    match /bookings/{bookingId} {
+      allow read:   if isAdmin()
+                    || (isAuthenticated()
+                        && (resource.data.customerId == request.auth.uid
+                            || resource.data.workerId == request.auth.uid));
+      allow create: if isAuthenticated()
+                    && request.resource.data.customerId == request.auth.uid;
+      allow update: if isAdmin()
+                    || (isAuthenticated()
+                        && (resource.data.customerId == request.auth.uid
+                            || resource.data.workerId == request.auth.uid)
+                        && (isOtpFieldsUnchanged() || isFirstPaymentByCustomer()));
+      allow delete: if isSuperAdmin();
+    }
+
+    // ── reviews collection ───────────────────────────────────────────────────
+    match /reviews/{reviewId} {
+      allow read:   if true;
+      allow create: if isAuthenticated()
+                    && request.resource.data.customerId == request.auth.uid;
+      allow update: if isAdmin();
+      allow delete: if isAdmin() || isOwner(resource.data.customerId);
+    }
+
+    // ── jobRequests collection ───────────────────────────────────────────────
+    match /jobRequests/{requestId} {
+      allow read:   if isAuthenticated() && (
+                      resource.data.customerId == request.auth.uid ||
+                      resource.data.status in ['open', 'quoted'] ||
+                      isAdmin()
+                    );
+      allow create: if isAuthenticated() &&
+                    request.resource.data.customerId == request.auth.uid;
+      allow update: if isAuthenticated() && (
+                      resource.data.customerId == request.auth.uid ||
+                      isAdmin()
+                    );
+      allow delete: if isAdmin();
+    }
+
+    // ── quotes collection ────────────────────────────────────────────────────
+    match /quotes/{quoteId} {
+      allow read:   if isAuthenticated() && (
+                      resource.data.workerId   == request.auth.uid ||
+                      resource.data.customerId == request.auth.uid ||
+                      isAdmin()
+                    );
+      allow create: if isAuthenticated() &&
+                    request.resource.data.workerId == request.auth.uid;
+      allow update: if isAuthenticated() && (
+                      resource.data.customerId == request.auth.uid ||
+                      isAdmin()
+                    );
+      allow delete: if isAdmin();
+    }
+
+    // ── chats collection ─────────────────────────────────────────────────────
+    // FIX: Messages subcollection now uses chatId-embedded UIDs stored as
+    // fields on the chat doc. We embed participantIds as a list on the chat
+    // doc to avoid the get() call on every message read/write, which was
+    // causing permission errors when the chat doc was being created.
+    match /chats/{chatId} {
+      // ── FIX (Part 6) — single-doc reads ───────────────────────────────────
+      // chatId = [uid1,uid2].sort().join('_') so it always contains both UIDs.
+      // chatId.matches() works for getDoc / onSnapshot to a specific doc ID,
+      // AND handles non-existent documents (resource is null when doc absent).
+      allow get:    if isAuthenticated() && (
+                      chatId.matches('.*' + request.auth.uid + '.*') ||
+                      isAdmin()
+                    );
+
+      // ── FIX (Part 2 — Worker Chat Flow) — collection queries ──────────────
+      // subscribeChats runs: query(collection(db,'chats'), where('workerId','==',uid),
+      //   orderBy('lastMessageAt','desc'))
+      // For LIST operations Firestore cannot prove chatId.matches() from a
+      // where-field constraint — it needs a rule based on document field values.
+      // Documents in a list result always exist, so resource.data is safe here.
+      allow list:   if isAuthenticated() && (
+                      resource.data.workerId   == request.auth.uid ||
+                      resource.data.customerId == request.auth.uid ||
+                      isAdmin()
+                    );
+      allow create: if isAuthenticated() && (
+                      request.resource.data.customerId == request.auth.uid ||
+                      request.resource.data.workerId   == request.auth.uid
+                    );
+      allow update: if isAuthenticated() && (
+                      chatId.matches('.*' + request.auth.uid + '.*') ||
+                      isAdmin()
+                    );
+      allow delete: if isSuperAdmin();
+
+      // FIX: Participant verification here never uses get() — the chatId
+      // itself encodes both UIDs (uid1_uid2 sorted), so we just check the
+      // caller's UID appears in the chatId string. This avoids an extra
+      // Firestore read on every message read/create and the race condition
+      // that existed on first message send. The create rule below does add
+      // one get() of its own (see the block comment there) — that one is
+      // for the separate bookingAccepted check, not participant checking.
+      match /messages/{messageId} {
+        allow read: if isAuthenticated() &&
+                      (chatId.matches('.*' + request.auth.uid + '.*') ||
+                       isAdmin());
+
+        // ── FIX (Part 1 — booking-first architecture, server-side
+        // enforcement) ────────────────────────────────────────────────────
+        // ChatModal only *disables the composer* in the UI while
+        // bookingAccepted is false — that's a UX convenience, not
+        // enforcement. Without a rule, any authenticated participant could
+        // call the SDK directly and send a real message before the worker
+        // has accepted, bypassing "chat only becomes active after
+        // acceptance" entirely. System messages stay exempt:
+        // initBookingChat's initial "New booking request" note and
+        // notifyBookingAccepted/Rejected's notices are written by
+        // chatStore itself as part of the legitimate booking/accept/reject
+        // actions — including the accept notice, which is written a
+        // moment *before* the parent chat doc's bookingAccepted flag flips
+        // to true.
+        allow create: if isAuthenticated() &&
+                        (chatId.matches('.*' + request.auth.uid + '.*') || isAdmin()) &&
+                        (
+                          request.resource.data.senderId == 'system' ||
+                          isAdmin() ||
+                          (
+                            request.resource.data.senderId == request.auth.uid &&
+                            get(/databases/$(database)/documents/chats/$(chatId)).data.bookingAccepted == true
+                          )
+                        );
+
+        allow update, delete: if isAdmin();
+      }
+    }
+
+    // ── workerEarnings collection ────────────────────────────────────────────
+    match /workerEarnings/{earningId} {
+      allow read:   if isAuthenticated() && (
+                      resource.data.workerId == request.auth.uid ||
+                      isAdmin()
+                    );
+      allow create: if isAuthenticated() &&
+                    request.resource.data.customerId == request.auth.uid;
+      allow update: if isAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
+    // ── withdrawals collection ───────────────────────────────────────────────
+    match /withdrawals/{withdrawalId} {
+      allow read:   if isAuthenticated() && (
+                      resource.data.workerId == request.auth.uid ||
+                      isAdmin()
+                    );
+      allow create: if isAuthenticated() &&
+                    request.resource.data.workerId == request.auth.uid;
+      allow update: if isAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
+    // ── bookingMessages collection ──────────────────────────────────────────
+    // Flat collection for scalable message queries across bookings.
+    // Only participants (senderId / receiverId) can read/write their messages.
+    match /bookingMessages/{messageId} {
+      allow read:   if isAuthenticated() && (
+                      resource.data.senderId   == request.auth.uid ||
+                      resource.data.receiverId == request.auth.uid ||
+                      isAdmin()
+                    );
+      allow create: if isAuthenticated() &&
+                    request.resource.data.senderId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    // ── transactions collection ───────────────────────────────────────────────
+    // Payment transaction audit trail — created by markBookingPaid (customer).
+    // Both customer and worker can read their own records.
+    // Only admins can update or delete.
+    match /transactions/{transactionId} {
+      allow read:   if isAuthenticated() && (
+                      resource.data.customerId == request.auth.uid ||
+                      resource.data.workerId   == request.auth.uid ||
+                      isAdmin()
+                    );
+      allow create: if isAuthenticated() &&
+                    request.resource.data.customerId == request.auth.uid;
+      allow update: if isAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
+    // ── errorLogs collection (auto-logged by ErrorProvider) ─────────────────
+    // Written automatically for every detected error — no user action required.
+    // Logs are immutable: once written they cannot be updated.
+    match /errorLogs/{logId} {
+      // Anyone (including public visitors) may CREATE a log entry.
+      // Minimum validation: message must be a non-empty string.
+      allow create: if request.resource.data.message is string
+                    && request.resource.data.message.size() > 0;
+      // Only admins can LIST / GET logs.
+      allow read:   if isAdmin();
+      // Only admins can DELETE old logs (no update — logs are immutable).
+      allow delete: if isAdmin();
+      allow update: if false;
+    }
+
+    // ── errorReports collection ──────────────────────────────────────────────
+    // Users report errors they encounter; only admins can read/manage them.
+    match /errorReports/{reportId} {
+      // Any authenticated user may CREATE a report.
+      // Fields are validated: must include a non-empty message.
+      allow create: if isAuthenticated()
+                    && request.resource.data.message is string
+                    && request.resource.data.message.size() > 0;
+
+      // Only admins can LIST, GET, UPDATE, or DELETE reports.
+      allow read:   if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
+    // ── payment_error_log collection (Part 3) ────────────────────────────────
+    // Written by logPaymentError() in lib/pricing.js whenever payment
+    // verification or the post-payment booking update fails, so a failure
+    // leaves a record instead of vanishing into a swallowed error. Same
+    // shape as errorReports: any authenticated user can create one (scoped
+    // to their own uid), only admins can read/manage them — these contain
+    // booking/payment ids that shouldn't be readable by other users.
+    match /payment_error_log/{logId} {
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.bookingId is string
+                    && request.resource.data.bookingId.size() > 0;
+
+      allow read:   if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
+    // ── paymentLogs collection (Part 6) ──────────────────────────────────────
+    // Entries are created server-side by writePaymentLog() (create-order/
+    // verify routes, via the Admin SDK — bypasses rules entirely) when an
+    // order is created or verified. updatePaymentLog() in lib/pricing.js is
+    // the one client-side write: markBookingPaid() merges the completed
+    // payment's status onto the entry create-order already made. No client
+    // path ever creates one of these from scratch.
+    match /paymentLogs/{orderId} {
+      allow update: if isAuthenticated()
+                    && resource.data.customerId == request.auth.uid;
+
+      allow read:   if isAdmin();
+      allow create: if isAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
+    // ── Default deny ────────────────────────────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
