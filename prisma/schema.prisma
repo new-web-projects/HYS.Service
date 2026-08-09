@@ -33,6 +33,18 @@ enum DocumentType {
   WORK_ID
 }
 
+/// V1 requires this at signup and gates profile-completion on both
+/// dashboards (found on a completeness re-check against Phase 0 — not in
+/// the original schema draft). Worth confirming you still want it required
+/// going forward; it's a somewhat unusual ask for a home-services app and
+/// is easy to make optional later if not.
+enum Gender {
+  MALE
+  FEMALE
+  NON_BINARY
+  PREFER_NOT_TO_SAY
+}
+
 /// How a Booking came to exist — see Conversation's comment for how this
 /// affects when bookingId gets attached to a chat thread.
 enum BookingOrigin {
@@ -130,6 +142,7 @@ model User {
   emailVerified Boolean  @default(false)
   image         String?
   phone         String?
+  gender        Gender?
   role          Role     @default(CUSTOMER)
   banned        Boolean  @default(false)
   banReason     String?
@@ -229,6 +242,9 @@ model WorkerProfile {
   categoryId         String
   category           Category      @relation(fields: [categoryId], references: [id])
   bio                String?
+  /// Confirmed live and used for search/filtering (services page) and
+  /// profile display — not vestigial, added on the Phase 0 re-check.
+  skills             String[]      @default([])
   experienceYears    Int           @default(0)
   experienceDesc     String?
   startingPrice      Decimal       @db.Decimal(10, 2)
