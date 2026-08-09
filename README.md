@@ -73,7 +73,7 @@ your machine, CI), but **cannot** run inside the sandboxed environment this
 was built in, which only allows a fixed set of package-registry domains. So
 this Part was verified differently than Part 2:
 
-- The full schema (24 tables, 14 enums, every FK/unique/index) was hand
+- The full schema (24 tables, 15 enums, every FK/unique/index) was hand
   -translated to SQL and applied to a real local Postgres 16 with zero
   errors.
 - The design decision that actually matters — the nullable
@@ -116,6 +116,13 @@ Worth knowing before Part 4+ builds on this:
   re-confirms them with `npx @better-auth/cli generate` before wiring up
   real auth logic, since that CLI is Better Auth's own source of truth, not
   a guess made here.
+- `User.gender` and `WorkerProfile.skills` were added after a completeness
+  re-check found both are genuinely load-bearing in V1 (gender gates
+  profile-completion on both dashboards; skills backs search and profile
+  display) — see the Part 1 audit's §25 addendum for the full finding.
+
+See `MANUAL-VERIFICATION.md` for the steps that need to be run somewhere
+with real internet access before this Part counts as fully verified.
 
 ## Structure
 
