@@ -1,1 +1,633 @@
+// HYS Services — Version 2 — Data Model
+// Part 3: complete relational schema for every domain identified in the
+// Part 1 audit. No business logic lives here — this is the data layer only;
+// auth logic (Part 4), booking/chat logic (Part 7), payments (Part 8),
+// earnings/withdrawals/reviews (Part 9), and support tickets (Part 13) each
+// build on these tables in their own Part.
+//
+// Connection URL lives in prisma.config.ts (Prisma 7), not here.
 
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum Role {
+  CUSTOMER
+  WORKER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum DocumentType {
+  AADHAAR
+  PAN
+  WORK_ID
+}
+
+/// How a Booking came to exist — see Conversation's comment for how this
+/// affects when bookingId gets attached to a chat thread.
+enum BookingOrigin {
+  DIRECT
+  JOB_POST
+}
+
+enum BookingStatus {
+  PENDING_RESPONSE // Direct only: worker hasn't accepted/rejected yet
+  DISCUSSING // worker engaged, chat open, negotiating price
+  PRICE_PENDING // customer accepted a proposed price; awaiting worker's final confirm
+  READY_FOR_PAYMENT // both sides confirmed the final price
+  PAID // payment complete, completion OTP issued, earnings HELD
+  COMPLETED // OTP verified, earnings AVAILABLE
+  CANCELLED
+}
+
+enum JobPostStatus {
+  OPEN
+  FILLED
+  CANCELLED
+  EXPIRED
+}
+
+enum ConversationStatus {
+  OPEN
+  PRICE_PROPOSED
+  PRICE_CONFIRMED
+  CLOSED
+}
+
+enum MessageType {
+  TEXT
+  PRICE_PROPOSAL
+  PRICE_ACCEPTED
+  PRICE_CONFIRMED
+  SYSTEM
+}
+
+enum EarningStatus {
+  HELD // payment received, job not yet OTP-completed — not withdrawable
+  AVAILABLE // OTP verified — withdrawable
+  RESERVED // claimed by a pending Withdrawal
+  WITHDRAWN
+}
+
+enum WithdrawalMethod {
+  UPI
+  BANK
+}
+
+enum WithdrawalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum PaymentGateway {
+  RAZORPAY
+  PHONEPE
+  PAYTM
+}
+
+enum TransactionStatus {
+  CREATED
+  SUCCESS
+  FAILED
+}
+
+enum StorageProvider {
+  CLOUDINARY
+  S3
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_FOR_CUSTOMER
+  RESOLVED
+  CLOSED
+}
+
+// ============================================================
+// AUTH — Better Auth core tables
+// Field names follow Better Auth's standard Prisma adapter shape; Part 4
+// re-confirms these against `npx @better-auth/cli generate` before wiring
+// up real auth logic, since that CLI is Better Auth's own source of truth.
+// ============================================================
+
+model User {
+  id            String   @id @default(cuid())
+  name          String
+  email         String   @unique
+  emailVerified Boolean  @default(false)
+  image         String?
+  phone         String?
+  role          Role     @default(CUSTOMER)
+  banned        Boolean  @default(false)
+  banReason     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  sessions        Session[]
+  accounts        Account[]
+  customerProfile CustomerProfile?
+  workerProfile   WorkerProfile?
+
+  bookingsAsCustomer      Booking[]               @relation("BookingCustomer")
+  bookingsAsWorker        Booking[]                @relation("BookingWorker")
+  jobPosts                JobPost[]
+  conversationsAsCustomer Conversation[]           @relation("ConversationCustomer")
+  conversationsAsWorker   Conversation[]           @relation("ConversationWorker")
+  messages                Message[]
+  reviewsGiven            Review[]                 @relation("ReviewCustomer")
+  reviewsReceived         Review[]                 @relation("ReviewWorker")
+  earnings                Earning[]
+  withdrawals             Withdrawal[]
+  notifications           Notification[]
+  submittedCategories     Category[]
+  ticketsRequested        SupportTicket[]          @relation("TicketRequester")
+  ticketsAssigned         SupportTicket[]          @relation("TicketAssignee")
+  ticketMessages          SupportTicketMessage[]
+  auditLogs               AuditLog[]
+  media                   Media[]
+  pages                   Page[]
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  userId                String
+  accountId             String
+  providerId            String
+  password              String?
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, accountId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+// ============================================================
+// ROLE PROFILES
+// ============================================================
+
+model CustomerProfile {
+  userId      String   @id
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  addressLine String?
+  latitude    Decimal? @db.Decimal(9, 6)
+  longitude   Decimal? @db.Decimal(9, 6)
+  city        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model WorkerProfile {
+  userId             String        @id
+  user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  categoryId         String
+  category           Category      @relation(fields: [categoryId], references: [id])
+  bio                String?
+  experienceYears    Int           @default(0)
+  experienceDesc     String?
+  startingPrice      Decimal       @db.Decimal(10, 2)
+  isAvailable        Boolean       @default(true)
+  isVerified         Boolean       @default(false)
+  ordersCompleted    Int           @default(0)
+  rating             Decimal       @default(0) @db.Decimal(2, 1)
+  reviewCount        Int           @default(0)
+  addressLine        String?
+  latitude           Decimal?      @db.Decimal(9, 6)
+  longitude          Decimal?      @db.Decimal(9, 6)
+  city               String?
+  documentType       DocumentType?
+  documentUrl        String?
+  documentVerifiedAt DateTime?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  @@index([categoryId, isAvailable])
+  @@index([city])
+}
+
+model Category {
+  id            String    @id @default(cuid())
+  name          String    @unique
+  slug          String    @unique
+  icon          String?
+  isApproved    Boolean   @default(true)
+  submittedById String?
+  submittedBy   User?     @relation(fields: [submittedById], references: [id])
+  createdAt     DateTime  @default(now())
+
+  workerProfiles WorkerProfile[]
+  jobPosts       JobPost[]
+}
+
+// ============================================================
+// BOOKING, JOB POSTING & CHAT
+//
+// Direct booking: Booking is created first (status PENDING_RESPONSE) with
+// workerId already known; its Conversation is created alongside it with
+// bookingId set from the start. Chat authorization is derived from
+// booking.status (blocked while PENDING_RESPONSE) rather than a separate
+// duplicated flag, so there's one source of truth instead of two that can
+// drift apart.
+//
+// Job posting: a JobPost has no worker yet. Each interested worker gets
+// their own Conversation (jobPostId set, bookingId null, unique per
+// [jobPostId, workerId]) and can message the customer immediately — no
+// gating, by design. Exactly one Booking is created, at the moment the
+// customer selects a worker; that worker's Conversation gets bookingId set
+// at that point and the JobPost flips to FILLED. This is what keeps the two
+// booking paths from ever producing duplicate/conflicting Booking rows.
+// ============================================================
+
+model JobPost {
+  id          String        @id @default(cuid())
+  customerId  String
+  customer    User          @relation(fields: [customerId], references: [id])
+  categoryId  String
+  category    Category      @relation(fields: [categoryId], references: [id])
+  title       String
+  description String
+  addressLine String?
+  latitude    Decimal?      @db.Decimal(9, 6)
+  longitude   Decimal?      @db.Decimal(9, 6)
+  status      JobPostStatus @default(OPEN)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  conversations Conversation[]
+  booking       Booking?
+
+  @@index([categoryId, status])
+}
+
+model Booking {
+  id     String        @id @default(cuid())
+  origin BookingOrigin
+
+  customerId String
+  customer   User    @relation("BookingCustomer", fields: [customerId], references: [id])
+  workerId   String? // set immediately (DIRECT) or on selection (JOB_POST)
+  worker     User?   @relation("BookingWorker", fields: [workerId], references: [id])
+  jobPostId  String? @unique
+  jobPost    JobPost? @relation(fields: [jobPostId], references: [id])
+
+  status      BookingStatus @default(PENDING_RESPONSE)
+  description String
+  scheduledAt DateTime?
+  address     String
+  notes       String?
+
+  basePrice   Decimal? @db.Decimal(10, 2)
+  platformFee Decimal? @db.Decimal(10, 2)
+  gstAmount   Decimal? @db.Decimal(10, 2)
+  finalPrice  Decimal? @db.Decimal(10, 2)
+
+  // Hash only — the plaintext OTP is shown to the customer once, at payment
+  // time, and never persisted. Verified server-side in Part 7/8.
+  completionOtpHash String?
+  otpAttempts       Int       @default(0)
+  otpVerifiedAt     DateTime?
+
+  paidAt       DateTime?
+  completedAt  DateTime?
+  cancelledAt  DateTime?
+  cancelReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  conversation Conversation?
+  review       Review?
+  earning      Earning?
+  transactions Transaction[]
+
+  @@index([customerId])
+  @@index([workerId, status])
+}
+
+model Conversation {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   User     @relation("ConversationCustomer", fields: [customerId], references: [id])
+  workerId   String
+  worker     User     @relation("ConversationWorker", fields: [workerId], references: [id])
+  jobPostId  String?
+  jobPost    JobPost? @relation(fields: [jobPostId], references: [id])
+  bookingId  String?  @unique
+  booking    Booking? @relation(fields: [bookingId], references: [id])
+
+  status            ConversationStatus @default(OPEN)
+  proposedPrice     Decimal?           @db.Decimal(10, 2)
+  customerConfirmed Boolean            @default(false)
+  workerConfirmed   Boolean            @default(false)
+
+  customerLastReadAt DateTime?
+  workerLastReadAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages Message[]
+
+  // NULL jobPostId (direct-booking threads) never collides under Postgres'
+  // NULL-distinct unique semantics — this only actually constrains the
+  // job-posting case, one thread per worker per post.
+  @@unique([jobPostId, workerId])
+  @@index([customerId])
+  @@index([workerId])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User         @relation(fields: [senderId], references: [id])
+  type           MessageType  @default(TEXT)
+  content        String
+  priceAmount    Decimal?     @db.Decimal(10, 2)
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+// ============================================================
+// REVIEWS, EARNINGS & WITHDRAWALS
+// ============================================================
+
+model Review {
+  id         String   @id @default(cuid())
+  bookingId  String   @unique
+  booking    Booking  @relation(fields: [bookingId], references: [id])
+  customerId String
+  customer   User     @relation("ReviewCustomer", fields: [customerId], references: [id])
+  workerId   String
+  worker     User     @relation("ReviewWorker", fields: [workerId], references: [id])
+  rating     Int
+  comment    String?
+  createdAt  DateTime @default(now())
+
+  @@index([workerId])
+}
+
+model Earning {
+  id           String        @id @default(cuid())
+  bookingId    String        @unique
+  booking      Booking       @relation(fields: [bookingId], references: [id])
+  workerId     String
+  worker       User          @relation(fields: [workerId], references: [id])
+  amount       Decimal       @db.Decimal(10, 2)
+  status       EarningStatus @default(HELD)
+  withdrawalId String?
+  withdrawal   Withdrawal?   @relation(fields: [withdrawalId], references: [id])
+  createdAt    DateTime      @default(now())
+  availableAt  DateTime?
+  withdrawnAt  DateTime?
+
+  @@index([workerId, status])
+}
+
+model Withdrawal {
+  id                String           @id @default(cuid())
+  workerId          String
+  worker            User             @relation(fields: [workerId], references: [id])
+  amount            Decimal          @db.Decimal(10, 2)
+  method            WithdrawalMethod
+  upiId             String?
+  bankAccountName   String?
+  bankAccountNumber String?
+  bankIfsc          String?
+  processingFee     Decimal          @db.Decimal(10, 2)
+  netAmount         Decimal          @db.Decimal(10, 2)
+  status            WithdrawalStatus @default(PENDING)
+  requestedAt       DateTime         @default(now())
+  processedAt       DateTime?
+  rejectionReason   String?
+
+  earnings Earning[]
+
+  @@index([workerId, status])
+}
+
+// ============================================================
+// PAYMENTS
+// ============================================================
+
+model Transaction {
+  id               String            @id @default(cuid())
+  bookingId        String
+  booking          Booking           @relation(fields: [bookingId], references: [id])
+  gateway          PaymentGateway
+  gatewayOrderId   String?
+  gatewayPaymentId String?
+  amount           Decimal           @db.Decimal(10, 2)
+  status           TransactionStatus @default(CREATED)
+  rawResponse      Json?
+  createdAt        DateTime          @default(now())
+
+  @@index([bookingId])
+  @@index([gatewayOrderId])
+}
+
+// ============================================================
+// NOTIFICATIONS & SUPPORT
+// ============================================================
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  body      String
+  data      Json?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, readAt])
+}
+
+model SupportTicket {
+  id           String       @id @default(cuid())
+  /// e.g. HYS-000001 — generation is Part 13's job (Postgres sequence +
+  /// zero-padded format); this column just reserves the unique slot.
+  ticketNumber String       @unique
+  requesterId  String
+  requester    User         @relation("TicketRequester", fields: [requesterId], references: [id])
+  assignedToId String?
+  assignedTo   User?        @relation("TicketAssignee", fields: [assignedToId], references: [id])
+  subject      String
+  issueType    String
+  status       TicketStatus @default(OPEN)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  messages SupportTicketMessage[]
+}
+
+model SupportTicketMessage {
+  id             String        @id @default(cuid())
+  ticketId       String
+  ticket         SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User          @relation(fields: [senderId], references: [id])
+  content        String
+  attachmentUrl  String?
+  isInternalNote Boolean       @default(false)
+  createdAt      DateTime      @default(now())
+
+  @@index([ticketId, createdAt])
+}
+
+// ============================================================
+// CMS (carried forward from V1 — already worked there)
+// ============================================================
+
+model Page {
+  id          String    @id @default(cuid())
+  slug        String    @unique
+  title       String
+  sections    Json
+  isPublished Boolean   @default(false)
+  deletedAt   DateTime?
+  authorId    String?
+  author      User?     @relation(fields: [authorId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Media {
+  id           String          @id @default(cuid())
+  url          String
+  provider     StorageProvider
+  publicId     String?
+  mimeType     String
+  sizeBytes    Int
+  uploadedById String?
+  uploadedBy   User?           @relation(fields: [uploadedById], references: [id])
+  createdAt    DateTime        @default(now())
+}
+
+// ============================================================
+// PLATFORM SETTINGS — one consolidated row (replaces V1's
+// settings/global + settings/platform split)
+// ============================================================
+
+model Settings {
+  id String @id @default("global")
+
+  siteName    String  @default("HYS Services")
+  siteLogoUrl String?
+
+  platformFeeType      String  @default("percent") // "percent" | "fixed"
+  platformFeePercent   Decimal @default(10) @db.Decimal(5, 2)
+  platformFeeFixed     Decimal @default(0) @db.Decimal(10, 2)
+  gstPercent           Decimal @default(18) @db.Decimal(5, 2)
+  gstDisplayMode       Boolean @default(true)
+  withdrawalFeePercent Decimal @default(2) @db.Decimal(5, 2)
+
+  // Enabled flags only — gateway secrets stay in env vars, never here.
+  razorpayEnabled Boolean @default(false)
+  phonepeEnabled  Boolean @default(false)
+  paytmEnabled    Boolean @default(false)
+
+  storageProvider StorageProvider @default(CLOUDINARY)
+
+  maintenanceMode    Boolean @default(false)
+  maintenanceMessage String?
+  errorRevealEnabled Boolean @default(true)
+
+  updatedAt DateTime @updatedAt
+}
+
+// ============================================================
+// AUDIT & ERROR TRACKING
+// ============================================================
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String?
+  actor     User?    @relation(fields: [actorId], references: [id])
+  action    String
+  entity    String
+  entityId  String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+}
+
+/// Deliberately no FK to User — error logging must never fail because a
+/// referenced user row doesn't exist (anonymous sessions, race with
+/// deletion, etc.), matching how V1's error system already treated this.
+model ErrorLog {
+  id        String   @id @default(cuid())
+  message   String
+  stack     String?
+  file      String?
+  function  String?
+  component String?
+  route     String?
+  browser   String?
+  device    String?
+  userRole  String?
+  userId    String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+model ErrorReport {
+  id          String   @id @default(cuid())
+  message     String
+  description String?
+  route       String?
+  userId      String?
+  status      String   @default("open")
+  createdAt   DateTime @default(now())
+}
