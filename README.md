@@ -6,11 +6,12 @@ no Firebase. See the Part 1 audit/architecture document for the full
 rationale and the complete Part-by-part build plan; this README tracks the
 project as it actually exists today.
 
-**Status: Part 3 — PostgreSQL + Prisma + Server Architecture.** The full
-data model exists and is verified against a real Postgres instance (see
-"How this Part was verified" below), but no business logic reads or writes
-it yet — auth is Part 4, booking/chat is Part 7, and so on. Each later Part
-updates this README as it lands.
+**Status: Part 4 — Authentication + Roles + Security.** Customer, worker,
+and admin auth all work end-to-end against real Redis (rate limiting) and a
+build-verified codebase; the one piece that needs your own environment to
+confirm is anything touching the real Postgres-backed Prisma Client (see
+"Verifying this Part"). No booking/chat/payment features exist yet — that's
+Parts 7–9. Each later Part updates this README as it lands.
 
 ## Stack
 
@@ -19,8 +20,8 @@ updates this README as it lands.
 | Framework | Next.js 16 (App Router, Turbopack), React 19, TypeScript | ✅ Part 2 |
 | Styling | Tailwind CSS v4 | ✅ Part 2 |
 | Database | PostgreSQL, Prisma ORM 7 (driver-adapter mode via `@prisma/adapter-pg`) | ✅ Part 3 |
-| Cache / queues / rate limiting | Redis (`ioredis`) | ✅ Part 3 (infra only — nothing uses it yet) |
-| Auth | Better Auth | Part 4 |
+| Cache / rate limiting | Redis (`ioredis`) | ✅ Part 4 (rate limiting live; Part 7 adds pub/sub) |
+| Auth | Better Auth (email/password, bcrypt, RBAC) | ✅ Part 4 |
 | Real-time | Socket.IO | Part 7 |
 | Payments | Razorpay, PhonePe, Paytm | Part 8 |
 | Storage | Cloudinary, Amazon S3 (admin-selectable) | Part 11 |
@@ -28,98 +29,153 @@ updates this README as it lands.
 ## Getting started
 
 ### GitHub Codespaces (recommended)
-Open this repo in a Codespace. `.devcontainer/devcontainer.json` now points
-at `docker-compose.yml`, which brings up the app container **plus Postgres
-and Redis** together — `postCreateCommand` runs `npm install && npx prisma
+Open this repo in a Codespace. `.devcontainer/devcontainer.json` points at
+`docker-compose.yml`, which brings up the app container **plus Postgres and
+Redis** together — `postCreateCommand` runs `npm install && npx prisma
 generate` automatically. Then:
 
 ```bash
 npx prisma migrate dev --name init   # first time only — creates the tables
+cp .env.example .env.local            # fill in BETTER_AUTH_SECRET, SEED_SUPERADMIN_*
+npm run db:seed                       # creates the first Super Admin
 npm run dev
 ```
 
 ### Local, with Docker
 ```bash
 docker compose up -d          # Postgres on 5432, Redis on 6379
-cp .env.example .env.local    # defaults already match docker-compose.yml
+cp .env.example .env.local    # fill in BETTER_AUTH_SECRET, SEED_SUPERADMIN_*
 npm install
 npx prisma generate
 npx prisma migrate dev --name init
+npm run db:seed
 npm run dev
 ```
 
+Generate `BETTER_AUTH_SECRET` with `openssl rand -base64 32` — the app won't
+boot without it (`lib/env.ts` fails fast rather than starting insecurely).
+
 ### Local, without Docker
 Point `DATABASE_URL`/`DIRECT_URL`/`REDIS_URL` in `.env.local` at your own
-Postgres 16+ and Redis instances instead, then run the same three `npx`/`npm`
-commands above.
+Postgres 16+ and Redis instead, then run the same commands above.
 
 ## Scripts
 
 ```bash
 npm run dev              # start the dev server (Turbopack)
-npm run build            # production build
-npm run start             # run a production build locally
-npm run lint              # ESLint
-npx prisma generate       # regenerate the Prisma Client from schema.prisma
-npx prisma migrate dev    # create/apply a migration in development
-npx prisma studio         # browse the database in a GUI
+npm run build             # production build
+npm run start              # run a production build locally
+npm run lint               # ESLint
+npm run db:seed            # create the first Super Admin (see .env.example)
+npx prisma generate        # regenerate the Prisma Client from schema.prisma
+npx prisma migrate dev     # create/apply a migration in development
+npx prisma studio          # browse the database in a GUI
 ```
 
 ## Verifying this Part
 
-`npx prisma generate` needs to reach `binaries.prisma.sh` to download its
-migration engine — it will work fine with normal internet access (Codespaces,
-your machine, CI), but **cannot** run inside the sandboxed environment this
-was built in, which only allows a fixed set of package-registry domains. So
-this Part was verified differently than Part 2:
+Same sandbox network limitation as Part 3 (`binaries.prisma.sh` isn't
+reachable here, so `prisma generate`/`migrate` can't run) — full detail and
+what to run yourself is in `MANUAL-VERIFICATION.md`. What *was* verified for
+real in this sandbox:
 
-- The full schema (24 tables, 15 enums, every FK/unique/index) was hand
-  -translated to SQL and applied to a real local Postgres 16 with zero
-  errors.
-- The design decision that actually matters — the nullable
-  `[jobPostId, workerId]` unique constraint that lets Direct Booking and Job
-  Posting coexist without duplicate bookings — was exercised with real
-  inserts: two different workers opening chats on the same job post
-  succeeds, the same worker doing it twice is rejected, selecting a worker
-  creates exactly one booking, and a second booking against the same job
-  post is rejected. Same for the one-review-per-booking constraint.
-- `ioredis` was confirmed to connect and round-trip a value against a real
-  local Redis.
-- `npm run lint` and `npm run build` both run clean **except** for one
-  expected error: `Cannot find module './generated/prisma/client'`, because
-  that module is generated by `prisma generate`, which didn't run here for
-  the network reason above. That's the only thing between this code and a
-  working build — running the commands under "Getting started" resolves it.
+- **The auth schema is checked against Better Auth's own CLI, not
+  hand-written from memory.** `npx @better-auth/cli generate` actually ran
+  against this project's real `lib/auth.ts` (via a temporary stub just to
+  get past the missing-Prisma-client problem above) and its output was
+  diffed field-by-field against the schema — several real corrections came
+  out of that (see the comment above `model User` in `schema.prisma`).
+- **A full `npm run build` passes with zero errors**, verified against a
+  deliberately loose-typed temporary stub client (deleted before delivery —
+  never shipped or committed). That proves everything *except* whether
+  Prisma-specific calls (e.g. `prisma.category.findMany(...)`) match the
+  real generated types exactly — only a real `prisma generate` can prove
+  that part, which is what step 1 in `MANUAL-VERIFICATION.md` is for. Four
+  real bugs unrelated to Prisma's types were caught and fixed this way
+  (Better Auth's client not knowing about the custom `role` field, an
+  implicit-`any` transaction parameter).
+- **Redis-backed rate limiting was proven against a real local Redis, not
+  just read as correct.** Six rapid login attempts: the first four returned
+  `401` (wrong password), the fifth and sixth returned `429` — exactly
+  matching the configured 5-per-15-minutes limit. This is the direct fix
+  for the V1 limitation flagged in the Part 1 audit (in-memory rate
+  limiting that silently stops working across multiple server instances).
+- Found and fixed one real bug via the build itself, not by inspection: an
+  eagerly-connecting Redis client was opening a connection during
+  `next build`'s page-data collection (visible as `ECONNREFUSED` in build
+  output) even though nothing was actually requesting data yet — fixed with
+  `lazyConnect: true` in `lib/redis.ts`.
+
+## Authentication architecture
+
+- **One `User` table for every role** (`role` enum: CUSTOMER/WORKER/ADMIN/
+  SUPER_ADMIN), not a separate admin table like V1 had. `CustomerProfile`/
+  `WorkerProfile` hold role-specific fields.
+- **Password hashing is bcrypt** (`bcryptjs`, cost 12), configured
+  explicitly rather than left on Better Auth's own default — matches the
+  spec's "bcrypt or argon2" and keeps V2 hash-compatible with V1's existing
+  Admin table if those accounts are ever migrated instead of reset.
+- **No public admin signup** — `/admin/login` exists, there's no
+  `/admin/signup`. The first Super Admin comes from `npm run db:seed`
+  (`prisma/seed.ts`), same as V1's pattern. It signs up through Better
+  Auth's own flow rather than a hand-hashed insert, so the seeded account
+  isn't a special case at login time.
+- **Route protection is two layers, deliberately not one.** `proxy.ts`
+  (Next.js 16 renamed `middleware.ts` → `proxy.ts` and moved it off the
+  Edge Runtime by default — a direct response to CVE-2025-29927, where
+  Edge-Runtime middleware authorization could be bypassed under load) only
+  checks whether a session cookie exists at all, to bounce obviously
+  signed-out visitors early. The real, DB-backed, role-aware check is
+  `lib/auth-guard.ts`'s `requireUser()`/`requireRole()`, called from every
+  protected page and API route individually — the framework's own current
+  guidance is not to trust the proxy layer alone for authorization.
+- **Login has its own Redis-backed brute-force lock** (5 failed attempts →
+  15-minute lock per email, plus a separate 5-per-15-min per-IP limit) via
+  a custom `/api/auth/login` route that wraps Better Auth's
+  `signInEmail()` — V1 had the same two protections, just in-memory.
+  Signup goes through its own custom routes too
+  (`/api/auth/customer/signup`, `/api/auth/worker/signup`), because
+  creating a `CustomerProfile`/`WorkerProfile` alongside the `User` isn't
+  something Better Auth's own signup endpoint knows how to do.
+- **Worker "Other" category signup no longer uses V1's temporary-ID
+  pattern.** V1 gave a worker a placeholder `pending-{timestamp}` category
+  ID and reconciled it later when an admin approved the name — the
+  reconciliation step was never found during the Part 1 audit. V2 creates
+  the real `Category` row immediately (`isApproved: false`), so
+  `WorkerProfile.categoryId` is always a valid foreign key from the moment
+  of signup.
+- **Known gap, not silently glossed over:** creating the `User` (via Better
+  Auth) and creating the `CustomerProfile`/`WorkerProfile` (via Prisma
+  directly after) aren't one atomic transaction — Better Auth owns the
+  first half internally. If the second half fails, a `User` with no profile
+  is left behind. Worth hardening (e.g. detecting and repairing this on
+  next login) before this handles real signups.
+- Email verification and password reset both work today — without SMTP
+  configured, `lib/email.ts` logs the email to the console instead of
+  sending it, which is enough to click the link by hand while testing.
 
 ## Data model
 
 `prisma/schema.prisma` — grouped into: Better Auth core (`User`/`Session`/
-`Account`/`Verification`), role profiles (`CustomerProfile`/`WorkerProfile`),
-`Category`, booking + job-posting + chat (`JobPost`/`Booking`/
-`Conversation`/`Message`), `Review`/`Earning`/`Withdrawal`, `Transaction`,
-`Notification`, `SupportTicket`/`SupportTicketMessage`, the CMS carried over
-from V1 (`Page`/`Media`), one consolidated `Settings` row, and
-`AuditLog`/`ErrorLog`/`ErrorReport`.
+`Account`/`Verification` — cross-checked against Better Auth's own CLI
+output, see "Verifying this Part"), role profiles (`CustomerProfile`/
+`WorkerProfile`), `Category`, booking + job-posting + chat (`JobPost`/
+`Booking`/`Conversation`/`Message`), `Review`/`Earning`/`Withdrawal`,
+`Transaction`, `Notification`, `SupportTicket`/`SupportTicketMessage`, the
+CMS carried over from V1 (`Page`/`Media`), one consolidated `Settings` row,
+and `AuditLog`/`ErrorLog`/`ErrorReport`.
 
-Worth knowing before Part 4+ builds on this:
-- **One `User` table for every role** (`role` enum: CUSTOMER/WORKER/ADMIN/
-  SUPER_ADMIN), not a separate admin table like V1 had — this is what Better
-  Auth's RBAC expects and what actually unifies the two systems V1 left
-  split.
+Worth knowing before Part 5+ builds on this:
 - **Money is `Decimal(10,2)` in rupees everywhere in the schema.** Gateways
   that want the smallest currency unit (paise) get converted at the Part 8
   integration boundary, not baked into the data model.
 - **Chat gating for Direct Booking is derived from `booking.status`**, not a
   duplicated boolean flag on `Conversation` — V1 had both and they could
   drift apart; here there's one source of truth.
-- Auth-table field names follow Better Auth's standard shape, but Part 4
-  re-confirms them with `npx @better-auth/cli generate` before wiring up
-  real auth logic, since that CLI is Better Auth's own source of truth, not
-  a guess made here.
-- `User.gender` and `WorkerProfile.skills` were added after a completeness
-  re-check found both are genuinely load-bearing in V1 (gender gates
-  profile-completion on both dashboards; skills backs search and profile
-  display) — see the Part 1 audit's §25 addendum for the full finding.
+- `User.gender` and `WorkerProfile.skills` were added after a Part 1
+  completeness re-check found both are genuinely load-bearing in V1 (gender
+  gates profile-completion on both dashboards; skills backs search and
+  profile display) — see the Part 1 audit's §25 addendum.
 
 See `MANUAL-VERIFICATION.md` for the steps that need to be run somewhere
 with real internet access before this Part counts as fully verified.
@@ -128,27 +184,40 @@ with real internet access before this Part counts as fully verified.
 
 ```
 app/
-  layout.tsx, page.tsx, globals.css   # root shell + placeholder homepage
-  api/health/                         # liveness check
+  layout.tsx, page.tsx, globals.css      # root shell + placeholder homepage
+  api/health/                            # liveness check
+  api/categories/                        # minimal read-only list (Part 6 owns the real thing)
+  api/auth/[...all]/                     # Better Auth's own routes (session, verify, reset)
+  api/auth/login/                        # custom: adds brute-force lock
+  api/auth/customer/signup/              # custom: adds CustomerProfile creation
+  api/auth/worker/signup/                # custom: adds WorkerProfile + category resolution
+  auth/login/, auth/signup/customer/, auth/signup/worker/   # functional, minimal styling — Part 15 designs these
+  admin/login/                           # role-gated separately from customer/worker login
 lib/
-  env.ts      # validated environment variables (extended every Part)
-  utils.ts    # cn() class-name helper
-  prisma.ts   # Prisma Client singleton (driver-adapter mode)
-  redis.ts    # Redis client singleton — not used by anything yet
-  generated/  # prisma generate output — gitignored, not committed
+  env.ts          # validated environment variables (extended every Part)
+  utils.ts        # cn() class-name helper
+  prisma.ts       # Prisma Client singleton (driver-adapter mode)
+  redis.ts        # Redis client singleton (lazy-connecting)
+  auth.ts         # Better Auth server config
+  auth-client.ts  # Better Auth React client
+  auth-guard.ts   # requireUser()/requireRole() — the real authorization check
+  rate-limit.ts   # Redis-backed rate limiting + brute-force lockout
+  email.ts        # console-log in dev, real SMTP once configured
+  generated/      # prisma generate output — gitignored, not committed
 prisma/
   schema.prisma   # the full data model
-prisma.config.ts  # Prisma 7 connection config (the URL lives here, not in schema.prisma)
+  seed.ts         # creates the first Super Admin
+proxy.ts           # lightweight request gate only — see "Authentication architecture"
+prisma.config.ts   # Prisma 7 connection config (the URL lives here, not in schema.prisma)
 docker-compose.yml # local Postgres + Redis
 ```
 
-Route groups for the public site, customer dashboard, worker dashboard, and
-admin panel — `app/(public)/`, `app/(customer)/`, `app/(worker)/`,
-`app/(admin)/` — are introduced starting Part 4/5/6 alongside the auth and
-pages that actually populate them, rather than committed empty now.
+Route groups for the customer dashboard, worker dashboard, and admin panel
+proper (`app/(customer)/`, `app/(worker)/`, `app/(admin)/`) are introduced
+starting Part 5/10 alongside the pages that actually populate them.
 
 ## Environment variables
 
 See `.env.example` — grouped by the Part that introduces each service. The
-Part 2 and Part 3 sections are required today; everything else is commented
+Part 2, 3, and 4 sections are required today; everything else is commented
 out until its Part exists.

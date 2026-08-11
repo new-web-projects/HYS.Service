@@ -1,4 +1,4 @@
-# Manual Verification — Parts 2 & 3
+# Manual Verification — Parts 2, 3 & 4
 
 Required whenever something can't be automatically verified. Everything
 below needs real internet access this sandboxed environment doesn't have
@@ -7,6 +7,21 @@ below needs real internet access this sandboxed environment doesn't have
 Nothing here is expected to fail — it's the same first-run experience any
 fresh clone of a Prisma project has — but it hasn't been run for real yet,
 so it isn't claimed as verified until you (or Codespaces) run it.
+
+**How Part 4 was verified despite this**, briefly, since it's a different
+technique than Part 3 used: `better-auth generate` doesn't need the blocked
+binary (it's pure Node), so it *could* run — but it still imports
+`lib/auth.ts` → `lib/prisma.ts` → the missing generated client. A minimal
+temporary stub (deleted after) let it run for real, and its output was
+diffed against the hand-written `User`/`Session`/`Account`/`Verification`
+models line by line — several real differences turned up and are now fixed
+in `schema.prisma` (see its own comment above the `User` model). The same
+stub technique, made deliberately loose-typed, then let a full
+`npm run build` get past the known missing-client error and catch four real
+TypeScript bugs unrelated to Prisma's exact types, all fixed. Rate limiting
+was verified against a real local Redis: six rapid login attempts correctly
+returned `401` four times then `429` from the fifth attempt on, matching
+the configured 5-per-window limit exactly.
 
 ---
 
@@ -42,14 +57,14 @@ columns on existing tables, not new tables; `Gender` is the one new enum).
 
 **What to test:** `npm run build` after steps 1–2 have run.
 **Where:** project root.
-**Expected result:** succeeds cleanly. Part 3's own build attempt (in this
-sandbox) got exactly one error —
-`Cannot find module './generated/prisma/client'` — and nothing else; that
-error should be gone once step 1 has actually generated that module. If any
-*other* error appears here, that's new and worth reporting back, since it
-wouldn't be the known/expected one.
-**Actual result:** not run to completion (see Part 3 summary for the
-partial result this sandbox *could* produce).
+**Expected result:** succeeds cleanly with zero errors — this was already
+proven true against a temporary stub client (see the note above); the real
+generated client only needs to match the stub's shape closely enough for
+TypeScript to agree, which `prisma generate` guarantees since it's
+generated directly from the same `schema.prisma`.
+**Actual result:** verified against a temporary stub, not the real
+generated client (see above). If this *still* fails after a real
+`prisma generate`, that's new information worth reporting back.
 **Status:** ⬜ PASS / ⬜ FAIL
 **Required config:** same as above.
 
@@ -82,6 +97,34 @@ itself.
 **Status:** ⬜ PASS / ⬜ FAIL
 **Required config:** a GitHub account with Codespaces access; no other
 credentials needed for this Part specifically.
+
+### 6. Seed the first Super Admin
+
+**What to test:** `npm run db:seed` creates the initial admin account via
+Better Auth's own signup path (see `prisma/seed.ts`'s comment for why not a
+raw insert).
+**Where:** project root, after migration.
+**Expected result:** logs `Super Admin created: <email>`; that account can
+then log in at `/admin/login` and reach role `SUPER_ADMIN`.
+**Actual result:** not run — depends on steps 1–2.
+**Status:** ⬜ PASS / ⬜ FAIL
+**Required config:** `SEED_SUPERADMIN_EMAIL` and `SEED_SUPERADMIN_PASSWORD`
+in `.env.local`. Rotate or remove the password after first login.
+
+### 7. Email verification / password reset links
+
+**What to test:** signing up (customer or worker) triggers a verification
+email; requesting a password reset triggers a reset email.
+**Where:** `/auth/signup/customer`, `/auth/signup/worker`, and a
+forgot-password flow (page not yet built — Part 5).
+**Expected result:** without `SMTP_HOST` set, the email is logged to the
+server console instead of sent (`lib/email.ts`) — enough to copy the link
+by hand and confirm it verifies the account / resets the password
+correctly. With real SMTP credentials, an actual email arrives.
+**Actual result:** not run — depends on steps 1–2 for a real user to exist.
+**Status:** ⬜ PASS / ⬜ FAIL
+**Required config:** none for the console-log path; SMTP credentials for a
+real send.
 
 ---
 
