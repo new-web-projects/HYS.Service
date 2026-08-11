@@ -16,6 +16,16 @@ const envSchema = z.object({
     .enum(["development", "production", "test"])
     .default("development"),
   NEXT_PUBLIC_APP_URL: z.url().default("http://localhost:3000"),
+
+  // Part 3
+  DATABASE_URL: z.string().min(1, "DATABASE_URL is required — see .env.example"),
+  REDIS_URL: z.string().min(1, "REDIS_URL is required — see .env.example"),
+
+  // Part 4
+  BETTER_AUTH_SECRET: z
+    .string()
+    .min(32, "BETTER_AUTH_SECRET must be at least 32 characters — openssl rand -base64 32"),
+  BETTER_AUTH_URL: z.url().default("http://localhost:3000"),
 });
 
 function loadEnv() {

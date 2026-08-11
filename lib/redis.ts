@@ -1,4 +1,5 @@
 import Redis from "ioredis";
+import { env } from "./env";
 
 /**
  * ioredis over node-redis mainly because Part 7's Socket.IO scaling needs a
@@ -14,15 +15,15 @@ const globalForRedis = globalThis as unknown as {
 };
 
 function createRedisClient() {
-  if (!process.env.REDIS_URL) {
-    throw new Error(
-      "REDIS_URL is not set. Copy .env.example to .env.local and fill it in " +
-        "(see the Part 3 README section for a local Redis option).",
-    );
-  }
-  return new Redis(process.env.REDIS_URL, {
+  return new Redis(env.REDIS_URL, {
     // Fail fast in serverless rather than hanging a request on a dead pool.
     maxRetriesPerRequest: 3,
+    // Found via an actual `npm run build`: without this, module load alone
+    // (e.g. any route that imports lib/rate-limit.ts) opens a connection
+    // during Next's build-time page-data collection, not just at request
+    // time — noisy ECONNREFUSED logs in any CI that builds without Redis
+    // running. Defers the real connection to the first command instead.
+    lazyConnect: true,
   });
 }
 
