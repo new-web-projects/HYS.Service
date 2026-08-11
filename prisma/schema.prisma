@@ -135,8 +135,22 @@ enum TicketStatus {
 // up real auth logic, since that CLI is Better Auth's own source of truth.
 // ============================================================
 
+/// Auth-table shape below was cross-checked against a real
+/// `npx @better-auth/cli generate` run against this project's actual
+/// lib/auth.ts (Part 4) — not guessed. Diffs from a typical hand-written
+/// version, and why they're kept or not:
+///  - id fields have no @default(cuid()): Better Auth assigns IDs itself
+///    at the application layer, so a DB-side default would just go unused.
+///  - User.role stays a real Postgres `Role` enum rather than the plain
+///    `String` the generic CLI output uses — Better Auth reads/writes it
+///    as a string either way (Prisma enums serialize the same), so this is
+///    strictly safer (DB-level validity) with no compatibility cost.
+///  - Account: the CLI's real output has no @@unique([providerId,
+///    accountId]) — a hand-written schema commonly adds one, but matching
+///    what Better Auth actually generates avoids second-guessing an
+///    invariant it doesn't itself enforce.
 model User {
-  id            String   @id @default(cuid())
+  id            String   @id
   name          String
   email         String   @unique
   emailVerified Boolean  @default(false)
@@ -144,7 +158,7 @@ model User {
   phone         String?
   gender        Gender?
   role          Role     @default(CUSTOMER)
-  banned        Boolean  @default(false)
+  banned        Boolean? @default(false)
   banReason     String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -177,7 +191,7 @@ model User {
 }
 
 model Session {
-  id        String   @id @default(cuid())
+  id        String   @id
   userId    String
   token     String   @unique
   expiresAt DateTime
@@ -187,11 +201,12 @@ model Session {
   updatedAt DateTime @updatedAt
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId])
   @@map("session")
 }
 
 model Account {
-  id                    String    @id @default(cuid())
+  id                    String    @id
   userId                String
   accountId             String
   providerId            String
@@ -206,16 +221,17 @@ model Account {
   updatedAt             DateTime  @updatedAt
   user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([providerId, accountId])
+  @@index([userId])
   @@map("account")
 }
 
 model Verification {
-  id         String   @id @default(cuid())
+  id         String   @id
   identifier String
   value      String
   expiresAt  DateTime
   createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@index([identifier])
   @@map("verification")
