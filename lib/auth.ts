@@ -2,6 +2,7 @@ import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
+import { redis } from "@/lib/redis";
 import { sendEmail } from "@/lib/email";
 import { env } from "@/lib/env";
 
@@ -76,6 +77,42 @@ export const auth = betterAuth({
     cookieCache: {
       enabled: true,
       maxAge: 60 * 5,
+    },
+    // secondaryStorage below also caches sessions in Redis for fast reads —
+    // these two flags keep Postgres authoritative regardless, so it's a
+    // cache, not the only copy. Matters for the same reason the whole
+    // rebuild moved off Firestore: one durable source of truth.
+    storeSessionInDatabase: true,
+    preserveSessionInDatabase: true,
+  },
+
+  // Redis as a read-through cache/store for sessions and rate-limit
+  // counters — the get/set/delete shape here is Better Auth's documented
+  // secondaryStorage contract, wrapping the same ioredis client
+  // lib/rate-limit.ts uses directly for the custom brute-force lock below.
+  secondaryStorage: {
+    get: (key) => redis.get(key),
+    set: (key, value, ttl) => (ttl ? redis.set(key, value, "EX", ttl) : redis.set(key, value)),
+    delete: (key) => redis.del(key).then(() => undefined),
+  },
+
+  // Covers every Better Auth endpoint this app doesn't have a custom
+  // wrapper for — password-reset requests, verification-email resends,
+  // session refresh, etc. — with Redis-backed limits instead of V1's
+  // in-memory ones. /sign-in/email gets a tighter rule here mainly for
+  // request-volume throttling; the *5-failed-passwords → 15-minute lock*
+  // behavior is a separate, complementary mechanism in
+  // app/api/auth/login/route.ts (lib/rate-limit.ts's isLockedOut), not a
+  // duplicate of this.
+  rateLimit: {
+    enabled: true,
+    window: 60,
+    max: 20,
+    storage: "secondary-storage",
+    customRules: {
+      "/sign-in/email": { window: 60, max: 10 },
+      "/forget-password": { window: 60 * 15, max: 3 },
+      "/send-verification-email": { window: 60 * 15, max: 3 },
     },
   },
 
