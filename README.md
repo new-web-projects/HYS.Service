@@ -129,14 +129,27 @@ real in this sandbox:
   `lib/auth-guard.ts`'s `requireUser()`/`requireRole()`, called from every
   protected page and API route individually — the framework's own current
   guidance is not to trust the proxy layer alone for authorization.
-- **Login has its own Redis-backed brute-force lock** (5 failed attempts →
-  15-minute lock per email, plus a separate 5-per-15-min per-IP limit) via
-  a custom `/api/auth/login` route that wraps Better Auth's
-  `signInEmail()` — V1 had the same two protections, just in-memory.
-  Signup goes through its own custom routes too
-  (`/api/auth/customer/signup`, `/api/auth/worker/signup`), because
-  creating a `CustomerProfile`/`WorkerProfile` alongside the `User` isn't
-  something Better Auth's own signup endpoint knows how to do.
+  `/admin/login` is explicitly exempted from `proxy.ts`'s protected-prefix
+  check — a completeness re-check caught that without this, the check
+  redirected the login page to itself, since visiting a login page never
+  comes with a session cookie.
+- **CSRF/same-origin protection on every mutating custom auth route**
+  (`lib/same-origin.ts`), matching V1's `enforceSameOrigin()` pattern.
+  Better Auth's own catch-all route checks origin against `trustedOrigins`
+  automatically, but that only covers requests it handles directly — the
+  three custom routes below call `auth.api.*` as server-side functions
+  instead, so they needed the same check ported explicitly.
+- **Two complementary rate-limiting layers, not one doing both jobs.**
+  Better Auth's own Redis-backed rate limiter (`secondaryStorage` +
+  `rateLimit` in `lib/auth.ts`) covers every endpoint it handles directly —
+  password-reset requests, verification-email resends, session refresh —
+  with tighter `customRules` on the sensitive ones. Separately,
+  `/api/auth/login` has its own Redis-backed brute-force lock (5 failed
+  *passwords* for one email → 15-minute lock, not just a request-volume
+  limit) — V1 had this same two-mechanism split, just in-memory.
+  `session.storeSessionInDatabase`/`preserveSessionInDatabase` stay on so
+  Postgres remains the durable source of truth even with Redis caching
+  sessions for speed.
 - **Worker "Other" category signup no longer uses V1's temporary-ID
   pattern.** V1 gave a worker a placeholder `pending-{timestamp}` category
   ID and reconciled it later when an admin approved the name — the
@@ -188,10 +201,11 @@ app/
   api/health/                            # liveness check
   api/categories/                        # minimal read-only list (Part 6 owns the real thing)
   api/auth/[...all]/                     # Better Auth's own routes (session, verify, reset)
-  api/auth/login/                        # custom: adds brute-force lock
-  api/auth/customer/signup/              # custom: adds CustomerProfile creation
-  api/auth/worker/signup/                # custom: adds WorkerProfile + category resolution
-  auth/login/, auth/signup/customer/, auth/signup/worker/   # functional, minimal styling — Part 15 designs these
+  api/auth/login/                        # custom: adds brute-force lock + CSRF check
+  api/auth/customer/signup/              # custom: adds CustomerProfile creation + CSRF check
+  api/auth/worker/signup/                # custom: adds WorkerProfile + category resolution + CSRF check
+  auth/login/, auth/forgot-password/, auth/reset-password/, auth/verify-email/,
+  auth/signup/customer/, auth/signup/worker/   # functional, minimal styling — Part 15 designs these
   admin/login/                           # role-gated separately from customer/worker login
 lib/
   env.ts          # validated environment variables (extended every Part)
@@ -201,7 +215,8 @@ lib/
   auth.ts         # Better Auth server config
   auth-client.ts  # Better Auth React client
   auth-guard.ts   # requireUser()/requireRole() — the real authorization check
-  rate-limit.ts   # Redis-backed rate limiting + brute-force lockout
+  same-origin.ts  # CSRF defense-in-depth for the custom auth routes
+  rate-limit.ts   # Redis-backed brute-force lockout (complements Better Auth's own rate limiter)
   email.ts        # console-log in dev, real SMTP once configured
   generated/      # prisma generate output — gitignored, not committed
 prisma/

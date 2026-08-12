@@ -17,11 +17,29 @@ diffed against the hand-written `User`/`Session`/`Account`/`Verification`
 models line by line — several real differences turned up and are now fixed
 in `schema.prisma` (see its own comment above the `User` model). The same
 stub technique, made deliberately loose-typed, then let a full
-`npm run build` get past the known missing-client error and catch four real
-TypeScript bugs unrelated to Prisma's exact types, all fixed. Rate limiting
-was verified against a real local Redis: six rapid login attempts correctly
-returned `401` four times then `429` from the fifth attempt on, matching
-the configured 5-per-window limit exactly.
+`npm run build` get past the known missing-client error and catch real
+TypeScript and runtime bugs unrelated to Prisma's exact types — across two
+build rounds (initial + a completeness re-check), that caught: Better
+Auth's client not knowing about the custom `role` field, an implicit-`any`
+transaction parameter, an eagerly-connecting Redis client opening
+connections during `next build` itself, a wrong client method name
+(`forgetPassword` vs. the actually-installed version's
+`requestPasswordReset` — confirmed empirically, not guessed), and a missing
+Suspense boundary around `useSearchParams()`. All fixed. Everything that
+*could* run against real local Postgres/Redis was run against real local
+Postgres/Redis, not stubbed — see the README's verification section.
+
+**A completeness re-check also caught one real bug** the build couldn't:
+`proxy.ts` was redirecting `/admin/login` itself to `/auth/login` (it
+matched the `/admin` protected prefix), making the admin login page
+unreachable — `next build` has no way to catch a logic bug like this, only
+an actual request does. Verified fixed with a real HTTP request against the
+running server: `/admin/login` now returns `200`, `/admin` (no session)
+still correctly redirects. Also added in that pass: CSRF/same-origin
+protection on the three custom auth routes (V1 had this on every mutating
+route; the new custom routes didn't yet), verified by sending a real
+cross-origin POST (rejected, `403`) and a real same-origin one (processed
+normally, `401` for bad credentials) against the running server.
 
 ---
 
