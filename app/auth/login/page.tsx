@@ -65,6 +65,9 @@ export default function LoginPage() {
           {submitting ? "Logging in…" : "Log in"}
         </button>
       </form>
+      <a href="/auth/forgot-password" className="text-sm underline">
+        Forgot your password?
+      </a>
       <p className="text-sm text-muted">
         New here?{" "}
         <a href="/auth/signup/customer" className="underline">
