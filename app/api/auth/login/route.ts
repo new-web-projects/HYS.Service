@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { rateLimit, isLockedOut, recordFailedLogin, clearFailedLogins } from "@/lib/rate-limit";
+import { rejectCrossOrigin } from "@/lib/same-origin";
 
 const loginSchema = z.object({
   email: z.email(),
@@ -9,6 +10,9 @@ const loginSchema = z.object({
 });
 
 export async function POST(request: Request) {
+  const originRejection = rejectCrossOrigin(request);
+  if (originRejection) return originRejection;
+
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
 
   // Per-IP: 5 attempts / 15 min, independent of the per-email lock below —
