@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { rateLimit } from "@/lib/rate-limit";
+import { rejectCrossOrigin } from "@/lib/same-origin";
 
 const genderValues = ["MALE", "FEMALE", "NON_BINARY", "PREFER_NOT_TO_SAY"] as const;
 
@@ -25,6 +26,9 @@ const workerSignupSchema = z
   });
 
 export async function POST(request: Request) {
+  const originRejection = rejectCrossOrigin(request);
+  if (originRejection) return originRejection;
+
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
   const limit = await rateLimit(`signup:ip:${ip}`, 5, 60 * 60);
   if (!limit.allowed) {
@@ -45,7 +49,7 @@ export async function POST(request: Request) {
   let signUpResult;
   try {
     signUpResult = await auth.api.signUpEmail({
-      body: { name, email, password, role: "WORKER", phone, gender },
+      body: { name, email, password, role: "WORKER", phone, gender, callbackURL: "/auth/verify-email" },
       asResponse: true,
     });
   } catch {
