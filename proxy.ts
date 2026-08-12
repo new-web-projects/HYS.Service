@@ -21,12 +21,21 @@ const WORKER_PREFIX = "/worker-dashboard";
 
 const PROTECTED_PREFIXES = [ADMIN_PREFIX, CUSTOMER_PREFIX, WORKER_PREFIX];
 
+// Sub-paths under a protected prefix that must stay reachable while signed
+// out — most importantly /admin/login itself: without this, the check
+// below would redirect every visit to /admin/login back to /auth/login
+// before it could ever render, since visiting a login page never comes
+// with a session cookie. Caught on a Part 4 completeness re-check, not
+// caught by the earlier build (proxy.ts's own logic isn't something
+// `next build` type-checks for correctness).
+const PUBLIC_EXCEPTIONS = ["/admin/login"];
+
 export default async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  const isProtected = PROTECTED_PREFIXES.some((prefix) =>
-    pathname.startsWith(prefix),
-  );
+  const isException = PUBLIC_EXCEPTIONS.some((path) => pathname === path);
+  const isProtected =
+    !isException && PROTECTED_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 
   if (isProtected) {
     const sessionCookie = getSessionCookie(request);
