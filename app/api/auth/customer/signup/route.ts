@@ -1,86 +1,69 @@
-"use client";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { auth } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import { rateLimit } from "@/lib/rate-limit";
+import { rejectCrossOrigin } from "@/lib/same-origin";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+const genderValues = ["MALE", "FEMALE", "NON_BINARY", "PREFER_NOT_TO_SAY"] as const;
 
-export default function CustomerSignupPage() {
-  const router = useRouter();
-  const [form, setForm] = useState({ name: "", email: "", password: "", phone: "" });
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+const customerSignupSchema = z.object({
+  name: z.string().min(1).max(100),
+  email: z.email(),
+  password: z.string().min(8),
+  phone: z.string().min(6).max(20).optional(),
+  gender: z.enum(genderValues).optional(),
+});
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setSubmitting(true);
-    try {
-      const res = await fetch("/api/auth/customer/signup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(data.error ?? "Something went wrong. Try again.");
-        return;
-      }
-      router.push("/auth/login?verify=1");
-    } finally {
-      setSubmitting(false);
-    }
+export async function POST(request: Request) {
+  const originRejection = rejectCrossOrigin(request);
+  if (originRejection) return originRejection;
+
+  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+  const limit = await rateLimit(`signup:ip:${ip}`, 5, 60 * 60);
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { error: "Too many signup attempts. Try again later." },
+      { status: 429 },
+    );
   }
 
-  return (
-    <main className="mx-auto flex min-h-[70vh] max-w-sm flex-col justify-center gap-6 px-6">
-      <h1 className="text-2xl font-semibold">Create a customer account</h1>
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        <label className="flex flex-col gap-1 text-sm">
-          Full name
-          <input
-            required
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-            className="rounded-md border border-muted/30 px-3 py-2"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          Email
-          <input
-            type="email"
-            required
-            value={form.email}
-            onChange={(e) => setForm({ ...form, email: e.target.value })}
-            className="rounded-md border border-muted/30 px-3 py-2"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          Phone (optional)
-          <input
-            value={form.phone}
-            onChange={(e) => setForm({ ...form, phone: e.target.value })}
-            className="rounded-md border border-muted/30 px-3 py-2"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          Password
-          <input
-            type="password"
-            required
-            minLength={8}
-            value={form.password}
-            onChange={(e) => setForm({ ...form, password: e.target.value })}
-            className="rounded-md border border-muted/30 px-3 py-2"
-          />
-        </label>
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        <button
-          type="submit"
-          disabled={submitting}
-          className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
-        >
-          {submitting ? "Creating account…" : "Sign up"}
-        </button>
-      </form>
-    </main>
-  );
+  const body = await request.json().catch(() => null);
+  const parsed = customerSignupSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid input." }, { status: 400 });
+  }
+  const { name, email, password, phone, gender } = parsed.data;
+
+  let signUpResult;
+  try {
+    signUpResult = await auth.api.signUpEmail({
+      body: { name, email, password, role: "CUSTOMER", phone, gender, callbackURL: "/auth/verify-email" },
+      asResponse: true,
+    });
+  } catch {
+    return NextResponse.json({ error: "Could not create account." }, { status: 400 });
+  }
+
+  if (!signUpResult.ok) {
+    // Most commonly: email already registered. Better Auth's own message
+    // is safe to relay as-is here — unlike login, signup failing for
+    // "already exists" isn't the enumeration risk that a login error is.
+    const data = await signUpResult.json().catch(() => null);
+    return NextResponse.json(
+      { error: data?.message ?? "Could not create account." },
+      { status: signUpResult.status },
+    );
+  }
+
+  const { user } = await signUpResult.json();
+
+  // Known gap, not silently glossed over: if this insert fails, the User
+  // row exists with no CustomerProfile. Better Auth's signup isn't a Prisma
+  // transaction this route can wrap, so it isn't atomic with the line
+  // above. Worth hardening (e.g. a retry-on-first-login check) before this
+  // handles real signups — flagged rather than assumed away.
+  await prisma.customerProfile.create({ data: { userId: user.id } });
+
+  return NextResponse.json({ user: { id: user.id, email: user.email } }, { status: 201 });
 }
