@@ -1,4 +1,4 @@
-# Manual Verification — Parts 2, 3 & 4
+# Manual Verification — Parts 2, 3, 4 & 5
 
 Required whenever something can't be automatically verified. Everything
 below needs real internet access this sandboxed environment doesn't have
@@ -40,6 +40,18 @@ protection on the three custom auth routes (V1 had this on every mutating
 route; the new custom routes didn't yet), verified by sending a real
 cross-origin POST (rejected, `403`) and a real same-origin one (processed
 normally, `401` for bad credentials) against the running server.
+
+**Part 5 added no new schema** — the table/enum counts below are
+unchanged. Its own verification was different in kind: `proxy.ts` had a
+real matcher bug that only showed up against a running server (see the
+README's "Customer + worker systems" section), so every route-protection
+claim for this Part was checked with a real HTTP request, not inferred
+from a clean build. The one thing that still needs your real environment:
+actually signing up, verifying a role assignment, and confirming
+`GET`/`PATCH` on `/api/customer/profile` and `/api/worker/profile`
+round-trip correctly against real data — this sandbox's stub Prisma client
+returns `null` for everything, so the request/response *shapes* were
+verified, not that a saved value comes back correctly on the next read.
 
 ---
 
@@ -143,6 +155,22 @@ correctly. With real SMTP credentials, an actual email arrives.
 **Status:** ⬜ PASS / ⬜ FAIL
 **Required config:** none for the console-log path; SMTP credentials for a
 real send.
+
+### 8. Customer/worker profile round-trip
+
+**What to test:** sign up as a customer and as a worker, edit each
+profile (phone, gender, address/city, and for workers: bio, experience,
+skills, category), save, reload the page.
+**Where:** `/customer-profile`, `/worker-profile`.
+**Expected result:** every saved field reappears exactly as entered;
+`isAvailable` toggles instantly; the profile-completion percentage moves as
+fields fill in.
+**Actual result:** not run — needs the real Prisma Client (steps 1–2). The
+request/response shapes were verified against a stub that returns `null`
+for every read, which confirms the API contract but not that a write is
+actually persisted and read back correctly.
+**Status:** ⬜ PASS / ⬜ FAIL
+**Required config:** a real signed-up account of each role.
 
 ---
 

@@ -6,12 +6,11 @@ no Firebase. See the Part 1 audit/architecture document for the full
 rationale and the complete Part-by-part build plan; this README tracks the
 project as it actually exists today.
 
-**Status: Part 4 — Authentication + Roles + Security.** Customer, worker,
-and admin auth all work end-to-end against real Redis (rate limiting) and a
-build-verified codebase; the one piece that needs your own environment to
-confirm is anything touching the real Postgres-backed Prisma Client (see
-"Verifying this Part"). No booking/chat/payment features exist yet — that's
-Parts 7–9. Each later Part updates this README as it lands.
+**Status: Part 5 — Customer + Worker Systems.** Both roles have a real
+dashboard shell, profile view/edit, and (worker-only) an availability
+toggle — all role-gated two ways (see "Authentication architecture" below).
+No booking/chat/payment/earnings features exist yet — those are Parts 7–9.
+Each later Part updates this README as it lands.
 
 ## Stack
 
@@ -105,6 +104,14 @@ real in this sandbox:
   `next build`'s page-data collection (visible as `ECONNREFUSED` in build
   output) even though nothing was actually requesting data yet — fixed with
   `lazyConnect: true` in `lib/redis.ts`.
+- **Part 5 specifically: every route-protection claim was checked against
+  real HTTP requests to a running server, not inferred from reading the
+  code.** That's exactly how `proxy.ts`'s broken matcher (see "Customer +
+  worker systems" below) turned up — a clean build gives zero signal about
+  whether a matcher pattern actually matches a route, only a real request
+  does. All four new pages, the admin-login regression, and the new API
+  routes were each hit directly (signed-out → redirect/401; public routes →
+  200) after the fix.
 
 ## Authentication architecture
 
@@ -167,6 +174,51 @@ real in this sandbox:
   configured, `lib/email.ts` logs the email to the console instead of
   sending it, which is enough to click the link by hand while testing.
 
+## Customer + worker systems (Part 5)
+
+- **Two role-gated route groups**, `app/(customer)/` and `app/(worker)/`,
+  each with its own layout calling `requireRole()` — the real check, not
+  just `proxy.ts`. URLs stay flat (`/customer-dashboard`,
+  `/customer-profile`, `/worker-dashboard`, `/worker-profile`) matching
+  V1's naming; the route group is filesystem organization only, it doesn't
+  appear in the URL.
+- **`proxy.ts`'s matcher had a real bug**, found on this Part's own
+  completeness re-check: `/customer/:path*` and `/worker-dashboard/:path*`
+  both require a trailing slash *plus something after it* — neither ever
+  matched the actual bare routes this Part builds (`/customer-dashboard`,
+  `/worker-profile`, etc. — no slash, nothing after). `proxy.ts` was
+  silently never invoked for any of them. No live security hole —
+  `requireRole()` in each layout still caught it, just a render later, via
+  a full redirect instead of an early bounce — but not what was intended.
+  Confirmed both broken (old matcher) and fixed (new one) against a real
+  running server, not just re-read: all four pages now correctly return a
+  redirect when signed out. The matcher is now deliberately broad
+  (everything except static assets) with the real prefix logic in plain JS
+  instead, to avoid repeating a mistake rooted in Next.js matcher-syntax
+  uncertainty.
+- **Profile completion percentages are a reasonable reconstruction, not a
+  byte-exact V1 port.** The Part 1 audit recorded that V1 had this feature
+  but never captured its exact per-field weights.
+  `lib/profile-completion.ts` documents its own weighting plainly so it's
+  easy to adjust rather than presented as more authoritative than it is.
+  Two fields that would normally count — profile photo, verification
+  document upload — are excluded from the denominator entirely until Part
+  11 (Storage) exists, rather than counted as permanently missing.
+- **Location capture ported the browser-geolocation UX (V1's per-error-code
+  messages), not the city auto-detection.** V1 also derived a city name
+  from coordinates via static bounding boxes for a handful of Indian
+  metros — the audit recorded that this existed but not the actual
+  coordinate values, and inventing plausible-looking bounding boxes to fill
+  that gap would be worse than leaving city as a manually-typed field for
+  now.
+- **Worker "Other" category via profile edit reuses the same
+  immediate-real-row pattern as signup** (`app/api/worker/profile/route.ts`),
+  not V1's temporary-ID pattern — see Part 4's notes for why.
+- Document upload for verification isn't built — Part 11 (Storage) owns
+  that. The profile edit page records which document type a worker intends
+  to provide; the actual file input arrives once there's somewhere to
+  upload it to.
+
 ## Data model
 
 `prisma/schema.prisma` — grouped into: Better Auth core (`User`/`Session`/
@@ -204,21 +256,30 @@ app/
   api/auth/login/                        # custom: adds brute-force lock + CSRF check
   api/auth/customer/signup/              # custom: adds CustomerProfile creation + CSRF check
   api/auth/worker/signup/                # custom: adds WorkerProfile + category resolution + CSRF check
+  api/customer/profile/                  # GET/PATCH, role-gated
+  api/worker/profile/                    # GET/PATCH, role-gated
+  api/worker/availability/               # PATCH, quick toggle
   auth/login/, auth/forgot-password/, auth/reset-password/, auth/verify-email/,
   auth/signup/customer/, auth/signup/worker/   # functional, minimal styling — Part 15 designs these
   admin/login/                           # role-gated separately from customer/worker login
+  (customer)/customer-dashboard/, (customer)/customer-profile/  # role-gated, flat URLs
+  (worker)/worker-dashboard/, (worker)/worker-profile/          # role-gated, flat URLs
+components/shared/
+  LogoutButton.tsx  # used by both dashboard layouts
 lib/
-  env.ts          # validated environment variables (extended every Part)
-  utils.ts        # cn() class-name helper
-  prisma.ts       # Prisma Client singleton (driver-adapter mode)
-  redis.ts        # Redis client singleton (lazy-connecting)
-  auth.ts         # Better Auth server config
-  auth-client.ts  # Better Auth React client
-  auth-guard.ts   # requireUser()/requireRole() — the real authorization check
-  same-origin.ts  # CSRF defense-in-depth for the custom auth routes
-  rate-limit.ts   # Redis-backed brute-force lockout (complements Better Auth's own rate limiter)
-  email.ts        # console-log in dev, real SMTP once configured
-  generated/      # prisma generate output — gitignored, not committed
+  env.ts                  # validated environment variables (extended every Part)
+  utils.ts                 # cn() class-name helper
+  prisma.ts                 # Prisma Client singleton (driver-adapter mode)
+  redis.ts                   # Redis client singleton (lazy-connecting)
+  auth.ts                     # Better Auth server config
+  auth-client.ts                # Better Auth React client
+  auth-guard.ts                  # requireUser()/requireRole() — the real authorization check
+  same-origin.ts                  # CSRF defense-in-depth for custom mutating routes
+  rate-limit.ts                    # Redis-backed brute-force lockout
+  email.ts                          # console-log in dev, real SMTP once configured
+  geolocation.ts                     # browser geolocation wrapper (client-side)
+  profile-completion.ts               # completion-percentage calculators
+  generated/                           # prisma generate output — gitignored, not committed
 prisma/
   schema.prisma   # the full data model
   seed.ts         # creates the first Super Admin
@@ -227,9 +288,8 @@ prisma.config.ts   # Prisma 7 connection config (the URL lives here, not in sche
 docker-compose.yml # local Postgres + Redis
 ```
 
-Route groups for the customer dashboard, worker dashboard, and admin panel
-proper (`app/(customer)/`, `app/(worker)/`, `app/(admin)/`) are introduced
-starting Part 5/10 alongside the pages that actually populate them.
+Route groups for the admin panel proper (`app/(admin)/`) are introduced
+starting Part 10 alongside the pages that populate it.
 
 ## Environment variables
 

@@ -13,29 +13,43 @@ import { getSessionCookie } from "better-auth/cookies";
  * bounce an obviously-signed-out visitor before a page even renders — and
  * checks maintenance mode. It is never the last word on who's allowed in;
  * every protected page and API route calls requireUser()/requireRole()
- * independently.
+ * independently, which is what actually enforces this even where the
+ * matching below is imprecise.
+ *
+ * Matcher is deliberately broad (everything except static assets) rather
+ * than trying to encode "/customer-*" / "/worker-dashboard,worker-profile"
+ * as Next.js matcher path patterns — a Part 5 re-check found the previous
+ * matcher (`/customer/:path*`, `/worker-dashboard/:path*`) required a
+ * trailing slash+segment, so it silently never matched the actual routes
+ * this Part builds (`/customer-dashboard`, `/customer-profile`,
+ * `/worker-dashboard`, `/worker-profile` with nothing after it) — proxy.ts
+ * was never even invoked for them. No live security hole (requireRole()
+ * still catches it, just one render later via a full redirect instead of
+ * proxy.ts bouncing it early), but not what was intended either. Doing the
+ * prefix check in plain JS below, where it's easy to test directly, avoids
+ * repeating that mistake with matcher-syntax uncertainty.
  */
 const ADMIN_PREFIX = "/admin";
-const CUSTOMER_PREFIX = "/customer";
-const WORKER_PREFIX = "/worker-dashboard";
+const CUSTOMER_PREFIX = "/customer-";
+const WORKER_PREFIX = "/worker-";
 
-const PROTECTED_PREFIXES = [ADMIN_PREFIX, CUSTOMER_PREFIX, WORKER_PREFIX];
+// worker- deliberately excludes /worker/[id] (Part 6: public worker
+// profiles) and any other /worker/... path — only the hyphenated private
+// dashboard routes are gated here.
+function isProtectedPath(pathname: string): boolean {
+  if (pathname.startsWith(ADMIN_PREFIX)) return true;
+  if (pathname.startsWith(CUSTOMER_PREFIX)) return true;
+  if (pathname.startsWith(WORKER_PREFIX)) return true;
+  return false;
+}
 
-// Sub-paths under a protected prefix that must stay reachable while signed
-// out — most importantly /admin/login itself: without this, the check
-// below would redirect every visit to /admin/login back to /auth/login
-// before it could ever render, since visiting a login page never comes
-// with a session cookie. Caught on a Part 4 completeness re-check, not
-// caught by the earlier build (proxy.ts's own logic isn't something
-// `next build` type-checks for correctness).
 const PUBLIC_EXCEPTIONS = ["/admin/login"];
 
 export default async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  const isException = PUBLIC_EXCEPTIONS.some((path) => pathname === path);
-  const isProtected =
-    !isException && PROTECTED_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+  const isException = PUBLIC_EXCEPTIONS.includes(pathname);
+  const isProtected = !isException && isProtectedPath(pathname);
 
   if (isProtected) {
     const sessionCookie = getSessionCookie(request);
@@ -46,14 +60,14 @@ export default async function proxy(request: NextRequest) {
     }
   }
 
-  // Maintenance mode: Part 5 wires this to Settings.maintenanceMode via a
-  // short-TTL cached read (matching V1's 30s-cache, fail-open pattern) —
-  // not implemented yet since there's no Settings-reading endpoint until
-  // then, noted here rather than silently absent.
+  // Maintenance mode: wires to Settings.maintenanceMode via a short-TTL
+  // cached read (matching V1's 30s-cache, fail-open pattern) once Part 6+
+  // has a Settings-reading endpoint to call — not implemented yet, noted
+  // here rather than silently absent.
 
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/customer/:path*", "/worker-dashboard/:path*"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };
