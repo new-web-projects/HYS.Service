@@ -6,11 +6,11 @@ no Firebase. See the Part 1 audit/architecture document for the full
 rationale and the complete Part-by-part build plan; this README tracks the
 project as it actually exists today.
 
-**Status: Part 5 — Customer + Worker Systems.** Both roles have a real
-dashboard shell, profile view/edit, and (worker-only) an availability
-toggle — all role-gated two ways (see "Authentication architecture" below).
-No booking/chat/payment/earnings features exist yet — those are Parts 7–9.
-Each later Part updates this README as it lands.
+**Status: Part 6 — Categories + Location + Service Marketplace.** The
+public service search, worker cards, filters, and public worker profile
+page are real and build-verified. Booking (the "Book worker" button) is
+visibly present but intentionally disabled — Part 7 wires it up. No
+chat/payment/earnings features exist yet.
 
 ## Stack
 
@@ -24,6 +24,7 @@ Each later Part updates this README as it lands.
 | Real-time | Socket.IO | Part 7 |
 | Payments | Razorpay, PhonePe, Paytm | Part 8 |
 | Storage | Cloudinary, Amazon S3 (admin-selectable) | Part 11 |
+| Icons | `lucide-react` | ✅ Part 6 |
 
 ## Getting started
 
@@ -112,6 +113,16 @@ real in this sandbox:
   does. All four new pages, the admin-login regression, and the new API
   routes were each hit directly (signed-out → redirect/401; public routes →
   200) after the fix.
+- **Part 6 specifically:** the verification stub itself had a real bug —
+  `findMany` returned `null` instead of `[]` two Proxy levels deep, which
+  only crashed a real request (`/api/workers/search`), not the build. Fixed
+  in the stub, confirmed via a real request afterward, and confirmed
+  `/api/categories` (built back in Part 4, using the same buggy stub the
+  whole time but masked by its own `?? []` fallback) still works
+  unchanged. Also confirmed directly in the compiled CSS output — not
+  assumed from the build succeeding — that Tailwind v4 actually generated
+  real utility classes (`fill-rating`, `text-accent`, etc.) from the new
+  `@theme` tokens in `globals.css`.
 
 ## Authentication architecture
 
@@ -217,7 +228,88 @@ real in this sandbox:
 - Document upload for verification isn't built — Part 11 (Storage) owns
   that. The profile edit page records which document type a worker intends
   to provide; the actual file input arrives once there's somewhere to
-  upload it to.
+  upload it to. Verification status now shows three states (not started /
+  pending review / verified), not a plain verified/not-verified binary —
+  a completeness re-check against the spec's exact "Document Verification
+  status" wording caught that the original binary version undersold what
+  the schema already tracks.
+- **A completeness re-check also added what the spec calls "Account
+  Settings"** as its own dashboard section (`/customer-account`,
+  `/worker-account`), distinct from the profile/location page — mainly
+  change-password (`components/shared/ChangePasswordForm.tsx`, via Better
+  Auth's own `changePassword`), since nothing let a *signed-in* user change
+  their password before this (only the signed-out forgot-password flow
+  existed). Both dashboard navs also gained a link back to the public site
+  and to this new page — neither existed before, a real (if minor) nav gap
+  for a spec that explicitly cares about "no hidden important options."
+- **Location was missing from both signup forms.** The spec lists it under
+  "Worker Signup must support," and it was only reachable via profile edit
+  after this Part's first pass. Added as an optional step on both customer
+  and worker signup now that `lib/geolocation.ts` exists to build it with.
+- Fixed a real lint error the first pass introduced: internal navigation
+  used raw `<a href="...">` instead of `next/link`'s `Link` — caught by
+  `next lint`, not by inspection, and applied consistently across every
+  internal link in the app, not just the ones the linter happened to flag
+  first.
+
+## Categories, location & service marketplace (Part 6)
+
+- **`/services`** — search, filters (category, distance, rating, starting
+  price, experience, verification), and a worker-card grid. Uses the
+  signed-in customer's saved location automatically if there is one
+  ("shouldn't need to enter location repeatedly," per the spec), otherwise
+  offers the same browser-geolocation prompt as the profile pages.
+- **`lib/worker-search.ts`** does a bounding-box pre-filter (indexed
+  `latitude`/`longitude` range query) then an exact Haversine distance and
+  a composite ranking score: available workers always sort before
+  unavailable ones (badged, not hidden — an unavailable worker can't be
+  booked, but hiding real profiles entirely would be worse than showing
+  them clearly marked); within that, distance leads 70/30 over rating when
+  a location is known, rating plus review count leads when it isn't. This
+  is a documented, reasonable heuristic — the spec asks for "intelligent"
+  ranking without pinning down exact weights, and says so plainly rather
+  than presenting one specific formula as more authoritative than it is.
+- **Real design pass, not a placeholder this time.** `app/globals.css`'s
+  tokens are revised from Part 2's explicitly-provisional set — Part 2 had
+  nothing real to design *for* yet; this Part does. Kept the teal primary
+  from Part 2 (already a deliberate, non-generic choice) and paired it with
+  a warm amber reserved for price and rating, since those are the two
+  numbers a customer scans a worker card for first.
+- **`lib/distance-pricing.ts` ports V1's exact travel-surcharge tiers**
+  (0% ≤5km / 5% 5–15km / 10% 15–30km / 20% beyond), confirmed with real
+  confidence in the Part 1 audit — unlike V1's city-auto-detection bounding
+  boxes, which weren't, and so still aren't ported (see Part 5's notes).
+  Not wired into an actual price yet; there's no booking to price until
+  Part 7.
+- **The public worker profile page's "Book worker" button is real but
+  disabled**, with a visible note saying why, rather than either omitting
+  it or wiring it to something that doesn't work yet.
+- **Public profiles deliberately don't show phone or email.** V1 only
+  reveals contact details to each side after payment (confirmed in the
+  Part 1 audit) — nothing about that changed just because this is a new
+  endpoint built fresh.
+- A stub bug in this sandbox's own verification tooling — not the
+  application — turned up here and is worth knowing about if you're
+  reading `MANUAL-VERIFICATION.md`: the temporary Prisma-client stub used
+  to unblock builds returned `null` instead of `[]` for every `findMany`,
+  two Proxy levels deep. Harmless for endpoints that happened to have a
+  defensive `?? []` (like `/api/categories` since Part 4), but it crashed
+  `/api/workers/search` outright the moment a real request hit it, which a
+  clean build gave zero signal about. Fixed in the stub itself, which
+  benefits every earlier Part's verification too, not just this one.
+- **A completeness re-check against the spec's exact Service Page field
+  list found two real gaps**, now fixed: "Availability" is explicitly
+  listed as one of the page's filters, alongside rating/price/experience/
+  verification — the first pass only used availability as a ranking/badge
+  signal, with no way to actually filter unavailable workers out
+  (`availableOnly` on `searchWorkers`/the search API/the filter panel now
+  covers this). And the spec's exact phrases — "Starting Price" and "Price
+  may increase based on the work" — are now literal, visible text on both
+  the worker card and public profile page, not paraphrased as "From ₹X".
+- Also added on that re-check: a brief note on the public worker profile
+  page that distant workers may carry a travel surcharge, shown before
+  payment once Part 7 exists — informational only, since there's no real
+  booking context yet to compute an actual figure against.
 
 ## Data model
 
@@ -241,6 +333,8 @@ Worth knowing before Part 5+ builds on this:
   completeness re-check found both are genuinely load-bearing in V1 (gender
   gates profile-completion on both dashboards; skills backs search and
   profile display) — see the Part 1 audit's §25 addendum.
+- `WorkerProfile` gained a `[latitude, longitude]` index in Part 6 for the
+  service-search bounding-box query.
 
 See `MANUAL-VERIFICATION.md` for the steps that need to be run somewhere
 with real internet access before this Part counts as fully verified.
@@ -249,9 +343,11 @@ with real internet access before this Part counts as fully verified.
 
 ```
 app/
-  layout.tsx, page.tsx, globals.css      # root shell + placeholder homepage
+  layout.tsx, page.tsx, globals.css      # root shell + real homepage (Part 6) + design tokens (Part 6)
   api/health/                            # liveness check
-  api/categories/                        # minimal read-only list (Part 6 owns the real thing)
+  api/categories/                        # minimal read-only list (Part 10 owns full category management)
+  api/workers/search/                    # service-page search + ranking
+  api/workers/[id]/                      # public worker profile (no phone/email)
   api/auth/[...all]/                     # Better Auth's own routes (session, verify, reset)
   api/auth/login/                        # custom: adds brute-force lock + CSRF check
   api/auth/customer/signup/              # custom: adds CustomerProfile creation + CSRF check
@@ -262,10 +358,18 @@ app/
   auth/login/, auth/forgot-password/, auth/reset-password/, auth/verify-email/,
   auth/signup/customer/, auth/signup/worker/   # functional, minimal styling — Part 15 designs these
   admin/login/                           # role-gated separately from customer/worker login
-  (customer)/customer-dashboard/, (customer)/customer-profile/  # role-gated, flat URLs
-  (worker)/worker-dashboard/, (worker)/worker-profile/          # role-gated, flat URLs
-components/shared/
-  LogoutButton.tsx  # used by both dashboard layouts
+  (customer)/customer-dashboard/, (customer)/customer-profile/, (customer)/customer-account/
+  (worker)/worker-dashboard/, (worker)/worker-profile/, (worker)/worker-account/
+                                          # all role-gated, flat URLs
+  (public)/services/                     # the service marketplace search page
+  worker/[id]/                           # public worker profile (no phone/email)
+components/
+  shared/
+    LogoutButton.tsx        # used by both dashboard layouts
+    ChangePasswordForm.tsx  # used by both account-settings pages
+  public/
+    WorkerCard.tsx      # the marketplace's signature card, per the spec's required fields
+    ServiceFilters.tsx  # search/filter panel used by the service page
 lib/
   env.ts                  # validated environment variables (extended every Part)
   utils.ts                 # cn() class-name helper
@@ -279,7 +383,10 @@ lib/
   email.ts                          # console-log in dev, real SMTP once configured
   geolocation.ts                     # browser geolocation wrapper (client-side)
   profile-completion.ts               # completion-percentage calculators
-  generated/                           # prisma generate output — gitignored, not committed
+  distance.ts                          # Haversine + bounding-box helpers
+  distance-pricing.ts                   # V1's travel-surcharge tiers (not wired in yet — Part 7/8)
+  worker-search.ts                       # service-page search/ranking query
+  generated/                              # prisma generate output — gitignored, not committed
 prisma/
   schema.prisma   # the full data model
   seed.ts         # creates the first Super Admin

@@ -1,4 +1,4 @@
-# Manual Verification — Parts 2, 3, 4 & 5
+# Manual Verification — Parts 2, 3, 4, 5 & 6
 
 Required whenever something can't be automatically verified. Everything
 below needs real internet access this sandboxed environment doesn't have
@@ -7,6 +7,16 @@ below needs real internet access this sandboxed environment doesn't have
 Nothing here is expected to fail — it's the same first-run experience any
 fresh clone of a Prisma project has — but it hasn't been run for real yet,
 so it isn't claimed as verified until you (or Codespaces) run it.
+
+**Part 5's own completeness re-check found and fixed real gaps** — Account
+Settings pages with change-password (nothing let a signed-in user change
+their password before), location on both signup forms (the spec's "Worker
+Signup must support... Location" wasn't met by profile-edit-only), a
+three-state verification status, and a lint error from using raw `<a>`
+instead of `next/link`'s `Link` for internal navigation, fixed across every
+occurrence in the app, not just the ones first flagged. All verified
+against the real running server the same way as everything else in this
+file's introduction below.
 
 **How Part 4 was verified despite this**, briefly, since it's a different
 technique than Part 3 used: `better-auth generate` doesn't need the blocked
@@ -52,6 +62,23 @@ actually signing up, verifying a role assignment, and confirming
 round-trip correctly against real data — this sandbox's stub Prisma client
 returns `null` for everything, so the request/response *shapes* were
 verified, not that a saved value comes back correctly on the next read.
+
+**Part 6 found and fixed a real bug in the stub itself** (not the app):
+`findMany` was returning `null` instead of `[]`, which only broke a real
+request against `/api/workers/search`, not the build — see the README's
+"Categories, location & service marketplace" section. Fixed in the stub;
+every earlier Part's endpoints that call `findMany` benefit from the more
+accurate stub too, not just this Part's new ones. Search ranking quality
+itself (does a closer worker actually rank above a farther one, etc.) still
+needs real data to check — the stub returns an empty result set regardless
+of the query, so the *shape* of the response was verified, not the ranking
+logic's actual behavior against real rows.
+
+**A completeness re-check found and fixed two real spec gaps**, not
+verification issues: an explicit "available now" filter (the spec lists
+Availability as a Service Page filter, not just a ranking signal), and the
+spec's exact phrases "Starting Price" / "Price may increase based on the
+work" now appear as literal text instead of a paraphrase.
 
 ---
 
@@ -171,6 +198,41 @@ for every read, which confirms the API contract but not that a write is
 actually persisted and read back correctly.
 **Status:** ⬜ PASS / ⬜ FAIL
 **Required config:** a real signed-up account of each role.
+
+### 9. Change password
+
+**What to test:** a signed-in user changes their password from
+`/customer-account` or `/worker-account`, then logs out and back in with
+the new one.
+**Where:** `/customer-account`, `/worker-account`.
+**Expected result:** succeeds with the correct current password; other
+active sessions for that account are signed out
+(`revokeOtherSessions: true`); the new password works on the next login.
+**Actual result:** not run — needs a real account (steps 1–2). The form
+itself and its call to Better Auth's `changePassword` compiled and typed
+correctly against the real Better Auth package, which is stronger evidence
+than the stub-only checks elsewhere in this file, but no real password was
+ever actually changed and re-verified end to end.
+**Status:** ⬜ PASS / ⬜ FAIL
+**Required config:** a real signed-up account.
+
+### 10. Service search with real workers
+
+**What to test:** with several real, geolocated worker profiles in the
+database (varying distance, rating, availability, price), load
+`/services` and try each filter.
+**Where:** `/services`, `GET /api/workers/search`.
+**Expected result:** closer/higher-rated available workers rank above
+farther/lower-rated or unavailable ones per `lib/worker-search.ts`'s
+documented weighting; each filter (category, distance, rating, price,
+experience, verified-only) narrows results correctly; the search box
+matches on name, skill, or bio.
+**Actual result:** not run — the stub returns an empty result set for any
+query, so only the request/response shape was verified, not ranking
+correctness against real rows.
+**Status:** ⬜ PASS / ⬜ FAIL
+**Required config:** several real worker accounts with distinct
+location/rating/price/availability values.
 
 ---
 
