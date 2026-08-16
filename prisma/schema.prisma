@@ -281,6 +281,7 @@ model WorkerProfile {
 
   @@index([categoryId, isAvailable])
   @@index([city])
+  @@index([latitude, longitude])
 }
 
 model Category {
