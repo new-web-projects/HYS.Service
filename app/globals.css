@@ -1,18 +1,34 @@
 @import "tailwindcss";
 
 /*
- * Font stack is a plain system-font list for now — deliberately not
- * next/font/google yet. Real typography direction belongs to Part 15
- * (UI/UX polish), and a build-time fetch to Google Fonts is an external
- * dependency worth avoiding until there's an actual designed page that
- * needs a specific display face.
+ * Real design pass (Part 6) — supersedes Part 2's placeholder tokens now
+ * that there's an actual content-rich page (the service marketplace) to
+ * design for. Deliberately not the generic AI-default palettes (warm
+ * cream+terracotta, near-black+neon, broadsheet newspaper): HYS Services is
+ * a home-services marketplace where the job of every screen is "help a
+ * customer trust and pick a worker fast" — so the palette leans on a
+ * confident, competence-signaling teal (kept from Part 2) paired with a
+ * warm amber reserved for price and the primary action, which also doubles
+ * as the star-rating color so rating and price read as the same register.
+ *
+ * Font stack stays system fonts — still no external Google Fonts
+ * build-time dependency (see Part 2's original note); a system stack is a
+ * legitimate, deliberate choice for a dense, data-heavy marketplace UI
+ * where legibility at small sizes matters more than a display face.
  */
 :root {
-  --background: #ffffff;
-  --foreground: #12161c;
-  --muted: #5b6472;
+  --background: #fafaf8;
+  --surface: #ffffff;
+  --foreground: #171d1a;
+  --muted: #5b6462;
+  --border: #e4e2dc;
   --primary: #0f6b5c;
   --primary-foreground: #ffffff;
+  --accent: #c8770f;
+  --accent-foreground: #ffffff;
+  --verified: #0f6b5c;
+  --rating: #c8770f;
+  --danger: #b3261e;
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
@@ -20,19 +36,28 @@
 
 @theme inline {
   --color-background: var(--background);
+  --color-surface: var(--surface);
   --color-foreground: var(--foreground);
   --color-muted: var(--muted);
+  --color-border: var(--border);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-verified: var(--verified);
+  --color-rating: var(--rating);
+  --color-danger: var(--danger);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0e13;
-    --foreground: #edf0f3;
-    --muted: #8b93a1;
+    --background: #10130f;
+    --surface: #171b16;
+    --foreground: #f0efe9;
+    --muted: #9aa39f;
+    --border: #2a2e28;
   }
 }
 
