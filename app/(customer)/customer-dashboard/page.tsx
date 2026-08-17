@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requireRole } from "@/lib/auth-guard";
 import { prisma } from "@/lib/prisma";
 import { customerProfileCompletion } from "@/lib/profile-completion";
@@ -31,9 +32,9 @@ export default async function CustomerDashboardPage() {
         {completion.missing.length > 0 && (
           <p className="mt-3 text-sm text-muted">
             Still missing: {completion.missing.join(", ")}.{" "}
-            <a href="/customer-profile" className="underline">
+            <Link href="/customer-profile" className="underline">
               Complete your profile
-            </a>
+            </Link>
           </p>
         )}
       </section>
