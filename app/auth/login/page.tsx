@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -65,18 +66,18 @@ export default function LoginPage() {
           {submitting ? "Logging in…" : "Log in"}
         </button>
       </form>
-      <a href="/auth/forgot-password" className="text-sm underline">
+      <Link href="/auth/forgot-password" className="text-sm underline">
         Forgot your password?
-      </a>
+      </Link>
       <p className="text-sm text-muted">
         New here?{" "}
-        <a href="/auth/signup/customer" className="underline">
+        <Link href="/auth/signup/customer" className="underline">
           Sign up as a customer
-        </a>{" "}
+        </Link>{" "}
         or{" "}
-        <a href="/auth/signup/worker" className="underline">
+        <Link href="/auth/signup/worker" className="underline">
           as a worker
-        </a>
+        </Link>
         .
       </p>
     </main>
