@@ -13,6 +13,10 @@ const customerSignupSchema = z.object({
   password: z.string().min(8),
   phone: z.string().min(6).max(20).optional(),
   gender: z.enum(genderValues).optional(),
+  addressLine: z.string().max(200).optional(),
+  city: z.string().max(100).optional(),
+  latitude: z.number().min(-90).max(90).optional(),
+  longitude: z.number().min(-180).max(180).optional(),
 });
 
 export async function POST(request: Request) {
@@ -33,7 +37,7 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid input." }, { status: 400 });
   }
-  const { name, email, password, phone, gender } = parsed.data;
+  const { name, email, password, phone, gender, addressLine, city, latitude, longitude } = parsed.data;
 
   let signUpResult;
   try {
@@ -63,7 +67,9 @@ export async function POST(request: Request) {
   // transaction this route can wrap, so it isn't atomic with the line
   // above. Worth hardening (e.g. a retry-on-first-login check) before this
   // handles real signups — flagged rather than assumed away.
-  await prisma.customerProfile.create({ data: { userId: user.id } });
+  await prisma.customerProfile.create({
+    data: { userId: user.id, addressLine, city, latitude, longitude },
+  });
 
   return NextResponse.json({ user: { id: user.id, email: user.email } }, { status: 201 });
 }
