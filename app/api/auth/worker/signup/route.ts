@@ -19,6 +19,10 @@ const workerSignupSchema = z
     experienceYears: z.number().int().min(0).max(60).default(0),
     startingPrice: z.number().positive(),
     bio: z.string().max(500).optional(),
+    addressLine: z.string().max(200).optional(),
+    city: z.string().max(100).optional(),
+    latitude: z.number().min(-90).max(90).optional(),
+    longitude: z.number().min(-180).max(180).optional(),
   })
   // Exactly one of categoryId / newCategoryName — "existing" vs. "Other".
   .refine((v) => Boolean(v.categoryId) !== Boolean(v.newCategoryName), {
@@ -43,7 +47,7 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid input." }, { status: 400 });
   }
-  const { name, email, password, phone, gender, categoryId, newCategoryName, experienceYears, startingPrice, bio } =
+  const { name, email, password, phone, gender, categoryId, newCategoryName, experienceYears, startingPrice, bio, addressLine, city, latitude, longitude } =
     parsed.data;
 
   let signUpResult;
@@ -103,6 +107,10 @@ export async function POST(request: Request) {
           experienceYears,
           startingPrice,
           bio,
+          addressLine,
+          city,
+          latitude,
+          longitude,
         },
       });
     });
