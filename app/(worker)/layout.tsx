@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requireRole } from "@/lib/auth-guard";
 import { LogoutButton } from "@/components/shared/LogoutButton";
 
@@ -8,12 +9,18 @@ export default async function WorkerLayout({ children }: { children: React.React
     <div className="flex min-h-screen flex-col">
       <header className="flex items-center justify-between border-b border-muted/20 px-6 py-4">
         <nav className="flex gap-4 text-sm">
-          <a href="/worker-dashboard" className="font-medium">
+          <Link href="/" className="text-muted">
+            HYS Services
+          </Link>
+          <Link href="/worker-dashboard" className="font-medium">
             Dashboard
-          </a>
-          <a href="/worker-profile" className="text-muted">
+          </Link>
+          <Link href="/worker-profile" className="text-muted">
             Profile
-          </a>
+          </Link>
+          <Link href="/worker-account" className="text-muted">
+            Account
+          </Link>
         </nav>
         <div className="flex items-center gap-4 text-sm">
           <span className="text-muted">{user.name}</span>
