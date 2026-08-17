@@ -1,6 +1,11 @@
+import Link from "next/link";
 import { requireRole } from "@/lib/auth-guard";
 import { prisma } from "@/lib/prisma";
-import { workerProfileCompletion } from "@/lib/profile-completion";
+import {
+  workerProfileCompletion,
+  documentVerificationStatus,
+  VERIFICATION_STATUS_LABEL,
+} from "@/lib/profile-completion";
 
 export default async function WorkerDashboardPage() {
   const user = await requireRole("WORKER");
@@ -32,7 +37,16 @@ export default async function WorkerDashboardPage() {
         </div>
         <div className="rounded-lg border border-muted/20 p-4">
           <p className="text-xs text-muted">Verification</p>
-          <p className="mt-1 font-medium">{profile.isVerified ? "Verified" : "Not verified"}</p>
+          <p className="mt-1 font-medium">
+            {
+              VERIFICATION_STATUS_LABEL[
+                documentVerificationStatus({
+                  documentType: profile.documentType,
+                  documentVerifiedAt: profile.documentVerifiedAt,
+                })
+              ]
+            }
+          </p>
         </div>
         <div className="rounded-lg border border-muted/20 p-4">
           <p className="text-xs text-muted">Rating</p>
@@ -56,9 +70,9 @@ export default async function WorkerDashboardPage() {
         {completion.missing.length > 0 && (
           <p className="mt-3 text-sm text-muted">
             Still missing: {completion.missing.join(", ")}.{" "}
-            <a href="/worker-profile" className="underline">
+            <Link href="/worker-profile" className="underline">
               Complete your profile
-            </a>
+            </Link>
           </p>
         )}
       </section>
