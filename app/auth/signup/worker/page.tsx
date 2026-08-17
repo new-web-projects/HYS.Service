@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { getCurrentLocation } from "@/lib/geolocation";
 
 type Category = { id: string; name: string };
 
@@ -19,6 +20,8 @@ export default function WorkerSignupPage() {
     startingPrice: "",
     bio: "",
   });
+  const [coords, setCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [locating, setLocating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -28,6 +31,18 @@ export default function WorkerSignupPage() {
       .then((data) => setCategories(data.categories ?? []))
       .catch(() => setCategories([]));
   }, []);
+
+  async function handleUseLocation() {
+    setError(null);
+    setLocating(true);
+    try {
+      setCoords(await getCurrentLocation());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't get your location.");
+    } finally {
+      setLocating(false);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -43,6 +58,7 @@ export default function WorkerSignupPage() {
           startingPrice: Number(form.startingPrice),
           categoryId: categoryChoice === "other" ? undefined : categoryChoice || undefined,
           newCategoryName: categoryChoice === "other" ? newCategoryName : undefined,
+          ...(coords && coords),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -168,6 +184,27 @@ export default function WorkerSignupPage() {
             rows={3}
           />
         </label>
+
+        <div className="flex flex-col gap-2 rounded-md border border-muted/20 p-3">
+          <p className="text-sm font-medium">Location (optional)</p>
+          <p className="text-xs text-muted">
+            Skip this now and add it later from your profile — customers
+            searching nearby (Part 6) use it either way.
+          </p>
+          <button
+            type="button"
+            onClick={handleUseLocation}
+            disabled={locating}
+            className="self-start rounded-md border border-muted/30 px-3 py-1.5 text-sm disabled:opacity-50"
+          >
+            {locating ? "Detecting…" : "Use my current location"}
+          </button>
+          {coords && (
+            <p className="text-xs text-muted">
+              Captured: {coords.latitude.toFixed(4)}, {coords.longitude.toFixed(4)}
+            </p>
+          )}
+        </div>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
         <button
