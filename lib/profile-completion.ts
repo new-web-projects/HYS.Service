@@ -61,3 +61,20 @@ export function workerProfileCompletion(input: {
     { label: "Document verification", complete: input.isVerified },
   ]);
 }
+
+export type VerificationStatus = "not_started" | "pending" | "verified";
+
+export function documentVerificationStatus(input: {
+  documentType: string | null | undefined;
+  documentVerifiedAt: Date | string | null | undefined;
+}): VerificationStatus {
+  if (input.documentVerifiedAt) return "verified";
+  if (input.documentType) return "pending";
+  return "not_started";
+}
+
+export const VERIFICATION_STATUS_LABEL: Record<VerificationStatus, string> = {
+  not_started: "Not started",
+  pending: "Pending review",
+  verified: "Verified",
+};
