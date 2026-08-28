@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { BadgeCheck, Star } from "lucide-react";
+import { useSession } from "@/lib/auth-client";
+import { BookingRequestModal } from "@/components/booking/BookingRequestModal";
 
 type Worker = {
   id: string;
@@ -27,8 +29,11 @@ function initials(name: string) {
 
 export default function WorkerProfilePublicPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
+  const { data: session } = useSession();
   const [worker, setWorker] = useState<Worker | null>(null);
   const [notFound, setNotFound] = useState(false);
+  const [bookingOpen, setBookingOpen] = useState(false);
 
   useEffect(() => {
     fetch(`/api/workers/${params.id}`)
@@ -119,24 +124,46 @@ export default function WorkerProfilePublicPage() {
           </p>
           <p className="text-xs text-muted">Price may increase based on the work.</p>
         </div>
-        <button
-          type="button"
-          disabled
-          title="Booking arrives in Part 7"
-          className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground opacity-50"
-        >
-          Book worker
-        </button>
+        {session?.user.role === "CUSTOMER" ? (
+          <button
+            type="button"
+            onClick={() => setBookingOpen(true)}
+            className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground"
+          >
+            Book worker
+          </button>
+        ) : session?.user ? (
+          <button
+            type="button"
+            disabled
+            title="Only customer accounts can book workers"
+            className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground opacity-50"
+          >
+            Book worker
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => router.push(`/auth/login?from=/worker/${params.id}`)}
+            className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground"
+          >
+            Log in to book
+          </button>
+        )}
       </div>
       <p className="mt-2 text-xs text-muted">
         Workers farther from your location may include a travel surcharge —
-        shown before you pay, once booking exists (Part 7).
+        shown once you and {worker.name.split(" ")[0]} agree on a final price
+        in chat.
       </p>
-      <p className="mt-1 text-xs text-muted">
-        Booking, chat, and payment aren&apos;t built yet — Part 7 wires this
-        button up for real instead of leaving it looking finished when it
-        isn&apos;t.
-      </p>
+      {bookingOpen && (
+        <BookingRequestModal
+          workerId={worker.id}
+          workerName={worker.name}
+          startingPrice={Number(worker.startingPrice)}
+          onClose={() => setBookingOpen(false)}
+        />
+      )}
     </main>
   );
 }

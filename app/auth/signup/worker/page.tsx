@@ -19,6 +19,8 @@ export default function WorkerSignupPage() {
     experienceYears: "0",
     startingPrice: "",
     bio: "",
+    addressLine: "",
+    city: "",
   });
   const [coords, setCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [locating, setLocating] = useState(false);
@@ -189,7 +191,7 @@ export default function WorkerSignupPage() {
           <p className="text-sm font-medium">Location (optional)</p>
           <p className="text-xs text-muted">
             Skip this now and add it later from your profile — customers
-            searching nearby (Part 6) use it either way.
+            searching nearby use it either way.
           </p>
           <button
             type="button"
@@ -204,6 +206,26 @@ export default function WorkerSignupPage() {
               Captured: {coords.latitude.toFixed(4)}, {coords.longitude.toFixed(4)}
             </p>
           )}
+          <p className="text-xs text-muted">
+            Prefer not to share your location? Enter it manually instead —
+            either one works.
+          </p>
+          <label className="flex flex-col gap-1 text-sm">
+            Address (optional)
+            <input
+              value={form.addressLine}
+              onChange={(e) => setForm({ ...form, addressLine: e.target.value })}
+              className="rounded-md border border-muted/30 px-3 py-2"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            City (optional)
+            <input
+              value={form.city}
+              onChange={(e) => setForm({ ...form, city: e.target.value })}
+              className="rounded-md border border-muted/30 px-3 py-2"
+            />
+          </label>
         </div>
 
         {error && <p className="text-sm text-red-600">{error}</p>}

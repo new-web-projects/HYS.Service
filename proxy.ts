@@ -32,6 +32,14 @@ import { getSessionCookie } from "better-auth/cookies";
 const ADMIN_PREFIX = "/admin";
 const CUSTOMER_PREFIX = "/customer-";
 const WORKER_PREFIX = "/worker-";
+// Part 7: none of these fit the customer-/worker- prefix trick above —
+// /chat is shared by both roles, and /job-board, /post-job are each
+// single, non-hyphenated segments — so they're listed explicitly here
+// rather than mangling their URLs just to match a prefix pattern.
+const CHAT_PREFIX = "/chat";
+const JOB_BOARD_PREFIX = "/job-board";
+const POST_JOB_PREFIX = "/post-job";
+const NOTIFICATIONS_PREFIX = "/notifications";
 
 // worker- deliberately excludes /worker/[id] (Part 6: public worker
 // profiles) and any other /worker/... path — only the hyphenated private
@@ -40,6 +48,10 @@ function isProtectedPath(pathname: string): boolean {
   if (pathname.startsWith(ADMIN_PREFIX)) return true;
   if (pathname.startsWith(CUSTOMER_PREFIX)) return true;
   if (pathname.startsWith(WORKER_PREFIX)) return true;
+  if (pathname.startsWith(CHAT_PREFIX)) return true;
+  if (pathname.startsWith(JOB_BOARD_PREFIX)) return true;
+  if (pathname.startsWith(POST_JOB_PREFIX)) return true;
+  if (pathname.startsWith(NOTIFICATIONS_PREFIX)) return true;
   return false;
 }
 

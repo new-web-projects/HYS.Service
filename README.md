@@ -339,6 +339,36 @@ Worth knowing before Part 5+ builds on this:
 See `MANUAL-VERIFICATION.md` for the steps that need to be run somewhere
 with real internet access before this Part counts as fully verified.
 
+## Backups & migration safety
+
+Postgres is the single source of truth for every table in this app — there
+is no Firebase (or any other) fallback store, so losing the database means
+losing everything. Set this up once, before real data exists:
+
+- **Automated backups**: turn on your provider's automated daily backups —
+  Neon, Supabase, RDS, Railway, and Render all offer this as a one-click
+  setting; on a self-managed VPS, a nightly `pg_dump` to off-box storage
+  (e.g. a small cron job piping to S3/Backblaze) is the equivalent. Point
+  it at whatever `DIRECT_URL` resolves to, not the pooled connection.
+- **Point-in-time recovery (PITR)**, if your provider supports it — restores
+  to any point in the last N days, not just the last nightly snapshot.
+  Worth enabling for production; adds cost, so optional for dev/staging.
+- **Before any destructive migration** (a column/table drop, a type change
+  that can lose data) — take a manual, named snapshot first, separate from
+  the automated schedule, and confirm you can restore it *before* running
+  the migration. `npx prisma migrate deploy` doesn't ask for confirmation.
+- **Restore procedure** (drill this at least once outside of an emergency):
+  1. Provision a fresh database (or a scratch branch, if your provider
+     supports branching — Neon does).
+  2. Restore the backup/snapshot into it.
+  3. Point a *non-production* `DATABASE_URL`/`DIRECT_URL` at it and run the
+     app's own health check (`/api/health`) plus a manual login, to confirm
+     the restored data is actually queryable before touching production.
+  4. Only then repoint production's connection strings, if that's the goal.
+- **Migrations so far are additive only** — every Part up through this one
+  has only added tables/columns, never dropped or renamed one, so there's
+  nothing destructive in the history yet to worry about retroactively.
+
 ## Structure
 
 ```

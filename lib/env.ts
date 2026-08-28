@@ -26,6 +26,10 @@ const envSchema = z.object({
     .string()
     .min(32, "BETTER_AUTH_SECRET must be at least 32 characters — openssl rand -base64 32"),
   BETTER_AUTH_URL: z.url().default("http://localhost:3000"),
+
+  // Part 7 — NEXT_PUBLIC_ because the browser client has to request this
+  // same path; see .env.example for why a server-only var would be unsafe.
+  NEXT_PUBLIC_SOCKET_IO_PATH: z.string().default("/api/socket"),
 });
 
 function loadEnv() {

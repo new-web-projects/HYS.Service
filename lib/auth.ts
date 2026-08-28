@@ -87,13 +87,26 @@ export const auth = betterAuth({
   },
 
   // Redis as a read-through cache/store for sessions and rate-limit
-  // counters — the get/set/delete shape here is Better Auth's documented
-  // secondaryStorage contract, wrapping the same ioredis client
-  // lib/rate-limit.ts uses directly for the custom brute-force lock below.
+  // counters — this is Better Auth's documented secondaryStorage
+  // contract, wrapping the same ioredis client lib/rate-limit.ts uses
+  // directly for the custom brute-force lock below. All five methods are
+  // required by Better Auth's own SecondaryStorage type — verified
+  // directly against the installed package (getAndDelete is called
+  // unconditionally in dist/db/internal-adapter.mjs for cached
+  // verification lookups; increment is called by Better Auth's built-in
+  // rate limiter in dist/api/rate-limiter/index.mjs, unused by this app
+  // since it has its own rate limiter, but still required at the type
+  // level). increment's TTL-on-first-hit shape matches lib/rate-limit.ts.
   secondaryStorage: {
     get: (key) => redis.get(key),
     set: (key, value, ttl) => (ttl ? redis.set(key, value, "EX", ttl) : redis.set(key, value)),
     delete: (key) => redis.del(key).then(() => undefined),
+    getAndDelete: (key) => redis.getdel(key),
+    increment: async (key, ttl) => {
+      const count = await redis.incr(key);
+      if (count === 1 && ttl) await redis.expire(key, ttl);
+      return count;
+    },
   },
 
   // Covers every Better Auth endpoint this app doesn't have a custom

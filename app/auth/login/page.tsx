@@ -1,11 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +35,12 @@ export default function LoginPage() {
         setError(data.error ?? "Something went wrong. Try again.");
         return;
       }
-      router.push("/");
+      // Only ever redirect to a path within this app — an open redirect
+      // (following an arbitrary `from` value straight to router.push)
+      // would let a crafted login link send someone who just typed in
+      // their password on to an attacker-controlled destination instead.
+      const from = searchParams.get("from");
+      router.push(from && from.startsWith("/") && !from.startsWith("//") ? from : "/");
       router.refresh();
     } finally {
       setSubmitting(false);

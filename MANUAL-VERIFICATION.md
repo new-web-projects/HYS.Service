@@ -1,4 +1,4 @@
-# Manual Verification — Parts 2, 3, 4, 5 & 6
+# Manual Verification — Parts 2, 3, 4, 5, 6 & 7
 
 Required whenever something can't be automatically verified. Everything
 below needs real internet access this sandboxed environment doesn't have
@@ -233,6 +233,125 @@ correctness against real rows.
 **Status:** ⬜ PASS / ⬜ FAIL
 **Required config:** several real worker accounts with distinct
 location/rating/price/availability values.
+
+---
+
+## Part 7 additions
+
+Same sandbox constraint as Part 3 (no network path to
+`binaries.prisma.sh` — confirmed this time from three separate angles:
+the default fetch, `PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1`, and a
+`PRISMA_ENGINES_MIRROR` pointed at GitHub, which reached `github.com`
+successfully but 404'd on that exact path). Used the same temporary
+loose-typed stub for `lib/generated/prisma/client` this Part's own
+verification left a note about, deleted before delivery either way —
+it got a real `next build` (not just `tsc --noEmit`) all the way through
+a clean compile, typecheck, and static-page generation across every
+route, old and new. That's strong signal but isn't the same as running
+against a real Postgres/Redis — items below need that.
+
+### 11. Real Prisma Client generation + typecheck
+
+**What to test:** `npx prisma generate` (needs real network access to
+`binaries.prisma.sh` this sandbox didn't have), then `npx tsc --noEmit`
+and `npx next build` again with the real client in place instead of the
+stub.
+**Where:** repo root.
+**Expected result:** zero errors — every field/enum this Part uses
+(`Booking.origin/status/basePrice/finalPrice/platformFee/gstAmount`,
+`Conversation.proposedPrice/customerConfirmed/workerConfirmed`,
+`JobPost.status`, `Message.type/priceAmount`, `Settings.platformFeeType/
+platformFeePercent/platformFeeFixed/gstPercent`) was cross-checked by
+hand directly against `schema.prisma`'s text, not guessed.
+**Actual result:** not run for real — see above.
+**Status:** ⬜ PASS / ⬜ FAIL
+
+### 12. Socket.IO real-time delivery, two sessions
+
+**What to test:** `npm run dev` (runs `server.ts`, not `next dev`
+directly), open a direct booking's chat as the customer in one browser
+and the worker in another, send messages back and forth, propose/accept/
+confirm a price, and watch typing indicators.
+**Where:** `/chat/[conversationId]`.
+**Expected result:** messages, typing indicators, read receipts, and
+booking-status changes appear in the other tab within roughly a second,
+no page refresh; disconnecting one tab's network and reconnecting
+resumes delivery (Socket.IO's built-in reconnection, configured in
+`lib/socket-client.ts`); if you kill the socket connection entirely
+(e.g. block the `/api/socket` path in devtools), messages still arrive
+via the 8-second poll in `ChatWindow.tsx`, just delayed.
+**Actual result:** not run — needs a real server process, Postgres, and
+Redis, none of which exist in this sandbox.
+**Status:** ⬜ PASS / ⬜ FAIL
+**Required config:** `DATABASE_URL`, `REDIS_URL`, both pointing at real
+running services.
+
+### 13. Full direct-booking lifecycle
+
+**What to test:** as a customer, book a worker from `/worker/[id]`; as
+that worker, accept it from `/worker-bookings`; in the resulting chat,
+propose a price (worker), accept it (customer), confirm it (worker).
+**Where:** `/worker/[id]` → `/worker-bookings` → `/chat/[id]`.
+**Expected result:** booking status moves
+`PENDING_RESPONSE → DISCUSSING → PRICE_PENDING → READY_FOR_PAYMENT`
+exactly in that order; chat is refused (403) if attempted before accept;
+`Booking.finalPrice/platformFee/gstAmount` are set correctly at the
+final confirm step, GST computed on the platform fee only, matching
+`lib/pricing.ts`; the reference `basePrice` shown at booking creation
+reflects the travel-surcharge tier from `lib/distance-pricing.ts` when
+both parties have coordinates on file.
+**Actual result:** not run — needs a real database.
+**Status:** ⬜ PASS / ⬜ FAIL
+
+### 14. Full job-posting lifecycle
+
+**What to test:** as a customer, post a job from `/post-job`; as two or
+more workers, send quotes from `/job-board`; as the customer, compare
+quotes on `/customer-job-posts/[id]` and select one.
+**Where:** `/post-job` → `/job-board` → `/customer-job-posts/[id]`.
+**Expected result:** the selected worker's conversation gets a real
+`Booking` (status `DISCUSSING`, skipping `PENDING_RESPONSE` — the
+worker already opted in by quoting); every other interested worker's
+conversation flips to `CLOSED` and they get a "job filled" notification;
+`JobPost.status` becomes `FILLED`; a second `select` attempt on the same
+job post is rejected.
+**Actual result:** not run.
+**Status:** ⬜ PASS / ⬜ FAIL
+
+### 15. SecondaryStorage fix (getAndDelete / increment)
+
+**What to test:** trigger an email-verification link consumption (Part 4
+flow) — internally exercises `secondaryStorage.getAndDelete` — and watch
+Redis directly (`redis-cli monitor` or similar) to confirm a `GETDEL`
+call actually happens and the key is gone afterward.
+**Where:** `/auth/verify-email` flow; `lib/auth.ts`.
+**Expected result:** verification succeeds exactly once; a repeat click
+on the same link fails cleanly (key already consumed) rather than
+throwing a missing-method error, which is what would have happened
+before this Part's fix.
+**Actual result:** not run — confirmed only that the implementation now
+matches the type contract (verified directly against the installed
+`better-auth` package's source), not that it behaves correctly against
+a live Redis.
+**Status:** ⬜ PASS / ⬜ FAIL
+
+### 16. Vercel deployment (no persistent Socket.IO)
+
+**What to test:** deploy to Vercel specifically (not VPS/Codespaces),
+and repeat test 13's flow.
+**Where:** a Vercel preview/production deployment.
+**Expected result:** the booking/chat flow still works end to end —
+messages, price negotiation, status changes — just arriving via the
+8-second poll instead of instantly, since Vercel's serverless functions
+can't hold the WebSocket connection `server.ts` depends on (see that
+file's header comment). No errors, no stuck UI — just slower delivery.
+**Actual result:** not run — this sandbox can't stand up a Vercel
+deployment.
+**Status:** ⬜ PASS / ⬜ FAIL
+**Required config:** a real Vercel project; note that `vercel.json` or
+Vercel's build settings need the build command to stay `next build`
+(already the case — `server.ts` is only ever invoked by `npm run dev`/
+`start`, which Vercel doesn't use).
 
 ---
 
