@@ -35,42 +35,60 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "That conversation doesn't belong to this job post." }, { status: 400 });
   }
 
-  const { booking, otherWorkerIds } = await prisma.$transaction(async (tx: typeof prisma) => {
-    const booking = await tx.booking.create({
-      data: {
-        origin: "JOB_POST",
-        customerId: user.id,
-        workerId: conversation.workerId!,
-        jobPostId: id,
-        // JOB_POST bookings skip PENDING_RESPONSE entirely — the worker
-        // already opted in by expressing interest and chatting, unlike
-        // a DIRECT booking the worker hasn't seen yet.
-        status: "DISCUSSING",
-        description: jobPost.description,
-        address: jobPost.addressLine || "See job post for location details",
-        scheduledAt: parsed.data.scheduledAt ? new Date(parsed.data.scheduledAt) : null,
-        basePrice: conversation.proposedPrice ?? 0,
-      },
-    });
-    await tx.conversation.update({ where: { id: conversation.id }, data: { bookingId: booking.id } });
-    await tx.jobPost.update({ where: { id }, data: { status: "FILLED" } });
+  let result: { booking: { id: string }; otherWorkerIds: string[] };
+  try {
+    result = await prisma.$transaction(async (tx: typeof prisma) => {
+      const booking = await tx.booking.create({
+        data: {
+          origin: "JOB_POST",
+          customerId: user.id,
+          workerId: conversation.workerId!,
+          jobPostId: id,
+          // JOB_POST bookings skip PENDING_RESPONSE entirely — the worker
+          // already opted in by expressing interest and chatting, unlike
+          // a DIRECT booking the worker hasn't seen yet.
+          status: "DISCUSSING",
+          description: jobPost.description,
+          address: jobPost.addressLine || "See job post for location details",
+          scheduledAt: parsed.data.scheduledAt ? new Date(parsed.data.scheduledAt) : null,
+          basePrice: conversation.proposedPrice ?? 0,
+        },
+      });
+      await tx.conversation.update({ where: { id: conversation.id }, data: { bookingId: booking.id } });
+      await tx.jobPost.update({ where: { id }, data: { status: "FILLED" } });
 
-    const others = await tx.conversation.findMany({
-      where: { jobPostId: id, id: { not: conversation.id } },
-      select: { id: true, workerId: true },
-    });
-    await tx.conversation.updateMany({
-      where: { jobPostId: id, id: { not: conversation.id } },
-      data: { status: "CLOSED" },
-    });
+      const others = await tx.conversation.findMany({
+        where: { jobPostId: id, id: { not: conversation.id } },
+        select: { id: true, workerId: true },
+      });
+      await tx.conversation.updateMany({
+        where: { jobPostId: id, id: { not: conversation.id } },
+        data: { status: "CLOSED" },
+      });
 
-    return {
-      booking,
-      otherWorkerIds: others
-        .map((o: { workerId: string | null }) => o.workerId)
-        .filter((wid: string | null): wid is string => Boolean(wid)),
-    };
-  });
+      return {
+        booking,
+        otherWorkerIds: others
+          .map((o: { workerId: string | null }) => o.workerId)
+          .filter((wid: string | null): wid is string => Boolean(wid)),
+      };
+    });
+  } catch (err: unknown) {
+    // Booking.jobPostId is @unique in the schema — the real safety net
+    // against two near-simultaneous "select" calls both succeeding. This
+    // catch only turns that DB-level rejection into a clean response
+    // instead of an unhandled 500; it isn't what prevents the double
+    // booking, the constraint already did that.
+    const code = (err as { code?: string } | null)?.code;
+    if (code === "P2002") {
+      return NextResponse.json(
+        { error: "This job was just filled — someone else was selected a moment ago." },
+        { status: 409 },
+      );
+    }
+    throw err;
+  }
+  const { booking, otherWorkerIds } = result;
 
   await notify({
     userId: conversation.workerId!,

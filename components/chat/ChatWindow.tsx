@@ -70,6 +70,8 @@ export function ChatWindow({ conversationId, viewerId }: { conversationId: strin
   const [showProposeForm, setShowProposeForm] = useState(false);
   const [proposeAmount, setProposeAmount] = useState("");
   const [otherTyping, setOtherTyping] = useState(false);
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -172,6 +174,7 @@ export function ChatWindow({ conversationId, viewerId }: { conversationId: strin
     isCustomer && conversation.status === "PRICE_PROPOSED" && !conversation.customerConfirmed && Boolean(conversation.booking);
   const canConfirm =
     !isCustomer && conversation.customerConfirmed && !conversation.workerConfirmed && Boolean(conversation.booking);
+  const canCancel = conversation.booking !== null && !["PAID", "COMPLETED", "CANCELLED"].includes(conversation.booking.status);
 
   async function postMessage(body: { type: Message["type"]; content: string; priceAmount?: number }) {
     setSending(true);
@@ -245,6 +248,28 @@ export function ChatWindow({ conversationId, viewerId }: { conversationId: strin
     });
   }
 
+  async function handleCancelBooking() {
+    if (!conversation?.booking || cancelling) return;
+    setCancelling(true);
+    setActionError(null);
+    try {
+      const res = await fetch(`/api/bookings/${conversation.booking.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setActionError(data.error ?? "Couldn't cancel this booking.");
+        return;
+      }
+      setConfirmingCancel(false);
+      await loadConversation();
+    } finally {
+      setCancelling(false);
+    }
+  }
+
   const bannerText = conversation.booking
     ? BOOKING_STATUS_COPY[conversation.booking.status]?.({ customer: conversation.customer.name, worker: conversation.worker.name })
     : conversation.jobPost
@@ -253,28 +278,94 @@ export function ChatWindow({ conversationId, viewerId }: { conversationId: strin
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between border-b border-border px-4 py-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-muted/20 text-sm font-medium">
+      <header className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted/20 text-sm font-medium">
             {otherParty.name.slice(0, 1).toUpperCase()}
           </div>
-          <div>
-            <p className="text-sm font-medium">{otherParty.name}</p>
-            <p className="text-xs text-muted">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium">{otherParty.name}</p>
+            <p className="truncate text-xs text-muted">
               {connected ? "Live" : "Reconnecting…"}
               {otherTyping && " · typing…"}
             </p>
           </div>
         </div>
-        {isCustomer && (
-          <Link href={`/worker/${otherParty.id}`} className="text-xs underline text-muted">
-            View profile
-          </Link>
-        )}
+        <div className="flex shrink-0 items-center gap-3">
+          {isCustomer && (
+            <Link href={`/worker/${otherParty.id}`} className="text-xs whitespace-nowrap underline text-muted">
+              Profile
+            </Link>
+          )}
+          {canCancel && !confirmingCancel && (
+            <button
+              onClick={() => setConfirmingCancel(true)}
+              className="text-xs whitespace-nowrap text-red-600 underline"
+            >
+              Cancel booking
+            </button>
+          )}
+        </div>
       </header>
 
-      {bannerText && (
-        <div className="border-b border-border bg-muted/10 px-4 py-2 text-xs text-muted">{bannerText}</div>
+      {confirmingCancel && (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-red-200 bg-red-50 px-4 py-2">
+          <p className="text-xs text-red-800">Cancel this booking? This can&apos;t be undone.</p>
+          <div className="flex gap-2">
+            <button
+              onClick={handleCancelBooking}
+              disabled={cancelling}
+              className="rounded-md bg-red-600 px-2.5 py-1 text-xs font-medium text-white disabled:opacity-50"
+            >
+              {cancelling ? "Cancelling…" : "Yes, cancel"}
+            </button>
+            <button onClick={() => setConfirmingCancel(false)} className="text-xs text-muted underline">
+              Never mind
+            </button>
+          </div>
+        </div>
+      )}
+
+      {conversation.booking?.finalPrice ? (
+        <div className="border-b border-border bg-accent/5 px-4 py-3 text-sm">
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-1">
+            <dt className="text-muted">Final price</dt>
+            <dd className="text-right">{formatMoney(conversation.booking.finalPrice)}</dd>
+            <dt className="text-muted">Platform fee</dt>
+            <dd className="text-right">{formatMoney(conversation.booking.platformFee)}</dd>
+            <dt className="text-muted">GST (on platform fee)</dt>
+            <dd className="text-right">{formatMoney(conversation.booking.gstAmount)}</dd>
+            <dt className="font-medium">Total amount</dt>
+            <dd className="text-right font-medium">
+              {formatMoney(
+                Number(conversation.booking.finalPrice) +
+                  Number(conversation.booking.platformFee ?? 0) +
+                  Number(conversation.booking.gstAmount ?? 0),
+              )}
+            </dd>
+          </dl>
+          {conversation.booking.status === "READY_FOR_PAYMENT" && (
+            <>
+              <p className="mt-2 text-xs text-muted">
+                Once payment is completed, {isCustomer ? "you" : "the customer"} won&apos;t be able to cancel this
+                booking.
+              </p>
+              <button
+                type="button"
+                disabled
+                title="Payment isn't wired up yet — that's Part 8"
+                className="mt-2 w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground opacity-50 sm:w-auto"
+              >
+                Proceed to payment
+              </button>
+            </>
+          )}
+          {conversation.booking.status === "PAID" && (
+            <p className="mt-2 text-xs text-accent">Paid — this booking can no longer be cancelled.</p>
+          )}
+        </div>
+      ) : (
+        bannerText && <div className="border-b border-border bg-muted/10 px-4 py-2 text-xs text-muted">{bannerText}</div>
       )}
 
       <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">

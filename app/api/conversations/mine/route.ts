@@ -25,12 +25,26 @@ export async function GET(request: Request) {
     take: 100,
   });
 
+  const unreadCounts = conversations.length
+    ? await prisma.message.groupBy({
+        by: ["conversationId"],
+        where: {
+          OR: conversations.map((c: (typeof conversations)[number]) => ({
+            conversationId: c.id,
+            senderId: { not: user.id },
+            ...((isCustomer ? c.customerLastReadAt : c.workerLastReadAt)
+              ? { createdAt: { gt: isCustomer ? c.customerLastReadAt! : c.workerLastReadAt! } }
+              : {}),
+          })),
+        },
+        _count: { _all: true },
+      })
+    : [];
+  const unreadByConversation = new Map(unreadCounts.map((u: { conversationId: string; _count: { _all: number } }) => [u.conversationId, u._count._all]));
+
   const withUnread = conversations.map((c: (typeof conversations)[number]) => {
     const lastMessage = c.messages[0] ?? null;
-    const lastReadAt = isCustomer ? c.customerLastReadAt : c.workerLastReadAt;
-    const hasUnread = Boolean(
-      lastMessage && lastMessage.senderId !== user.id && (!lastReadAt || lastMessage.createdAt > lastReadAt),
-    );
+    const unreadCount = unreadByConversation.get(c.id) ?? 0;
     return {
       id: c.id,
       status: c.status,
@@ -40,9 +54,12 @@ export async function GET(request: Request) {
       booking: c.booking,
       updatedAt: c.updatedAt,
       lastMessage,
-      hasUnread,
+      unreadCount,
     };
   });
 
-  return NextResponse.json({ conversations: withUnread });
+  return NextResponse.json({
+    conversations: withUnread,
+    totalUnread: withUnread.reduce((sum: number, c: { unreadCount: number }) => sum + c.unreadCount, 0),
+  });
 }

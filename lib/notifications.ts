@@ -46,3 +46,33 @@ export async function notify(input: NotifyInput) {
 
   return notification;
 }
+
+/**
+ * Total unread chat messages across every conversation the user is part
+ * of — one query (an OR list, not N per-conversation round-trips) shared
+ * by both dashboards so the count logic lives in exactly one place.
+ * Mirrors the per-conversation version in
+ * app/api/conversations/mine/route.ts, which needs the breakdown by
+ * conversation rather than just the total this returns.
+ */
+export async function getUnreadChatCount(userId: string, role: "CUSTOMER" | "WORKER"): Promise<number> {
+  const isCustomer = role === "CUSTOMER";
+  const conversations = await prisma.conversation.findMany({
+    where: isCustomer ? { customerId: userId } : { workerId: userId },
+    select: { id: true, customerLastReadAt: true, workerLastReadAt: true },
+  });
+  if (conversations.length === 0) return 0;
+
+  return prisma.message.count({
+    where: {
+      OR: conversations.map((c: (typeof conversations)[number]) => {
+        const lastReadAt = isCustomer ? c.customerLastReadAt : c.workerLastReadAt;
+        return {
+          conversationId: c.id,
+          senderId: { not: userId },
+          ...(lastReadAt ? { createdAt: { gt: lastReadAt } } : {}),
+        };
+      }),
+    },
+  });
+}

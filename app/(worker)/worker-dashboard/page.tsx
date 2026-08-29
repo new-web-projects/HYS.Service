@@ -6,6 +6,7 @@ import {
   documentVerificationStatus,
   VERIFICATION_STATUS_LABEL,
 } from "@/lib/profile-completion";
+import { getUnreadChatCount } from "@/lib/notifications";
 
 export default async function WorkerDashboardPage() {
   const user = await requireRole("WORKER");
@@ -26,7 +27,7 @@ export default async function WorkerDashboardPage() {
     skills: profile.skills,
   });
 
-  const [pendingCount, activeBookings, unreadCount] = await Promise.all([
+  const [pendingCount, activeBookings, unreadCount, unreadChatCount] = await Promise.all([
     prisma.booking.count({ where: { workerId: user.id, status: "PENDING_RESPONSE" } }),
     prisma.booking.findMany({
       where: { workerId: user.id, status: { in: ["DISCUSSING", "PRICE_PENDING", "READY_FOR_PAYMENT", "PAID"] } },
@@ -35,20 +36,31 @@ export default async function WorkerDashboardPage() {
       take: 5,
     }),
     prisma.notification.count({ where: { userId: user.id, readAt: null } }),
+    getUnreadChatCount(user.id, "WORKER"),
   ]);
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Welcome, {user.name}</h1>
-        <Link href="/notifications" className="text-sm underline text-muted">
-          Notifications
-          {unreadCount > 0 && (
-            <span className="ml-1 rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-medium text-white">
-              {unreadCount}
-            </span>
-          )}
-        </Link>
+        <div className="flex items-center gap-4">
+          <Link href="/chats" className="relative text-sm underline text-muted">
+            Chats
+            {unreadChatCount > 0 && (
+              <span className="ml-1 rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-medium text-white">
+                {unreadChatCount}
+              </span>
+            )}
+          </Link>
+          <Link href="/notifications" className="text-sm underline text-muted">
+            Notifications
+            {unreadCount > 0 && (
+              <span className="ml-1 rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-medium text-white">
+                {unreadCount}
+              </span>
+            )}
+          </Link>
+        </div>
       </div>
 
       <section className="grid grid-cols-2 gap-4 sm:grid-cols-3">

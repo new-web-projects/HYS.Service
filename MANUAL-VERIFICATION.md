@@ -299,7 +299,15 @@ exactly in that order; chat is refused (403) if attempted before accept;
 final confirm step, GST computed on the platform fee only, matching
 `lib/pricing.ts`; the reference `basePrice` shown at booking creation
 reflects the travel-surcharge tier from `lib/distance-pricing.ts` when
-both parties have coordinates on file.
+both parties have coordinates on file. Once confirmed, the chat shows a
+Final Price / Platform Fee / GST / Total breakdown and a disabled
+"Proceed to payment" control (Part 8 wires the real one in); a "Cancel
+booking" control is visible and working at every status before
+PAID/COMPLETED, and disappears once paid, matching the master prompt's
+explicit "customer cannot cancel once payment is completed" rule.
+Replaying `PRICE_ACCEPTED` or `PRICE_CONFIRMED` after they've already
+succeeded (e.g. two open tabs) is rejected with a 409, not silently
+reprocessed.
 **Actual result:** not run — needs a real database.
 **Status:** ⬜ PASS / ⬜ FAIL
 
@@ -314,7 +322,19 @@ quotes on `/customer-job-posts/[id]` and select one.
 worker already opted in by quoting); every other interested worker's
 conversation flips to `CLOSED` and they get a "job filled" notification;
 `JobPost.status` becomes `FILLED`; a second `select` attempt on the same
-job post is rejected.
+job post is rejected with a clean 409 either way — via the `status !==
+"OPEN"` check for a sequential repeat, or via `Booking.jobPostId`'s
+`@unique` constraint (caught and turned into the same clean 409, not an
+unhandled 500) for two selects that race each other closely enough to
+both pass the status check. The latter specifically needs two
+near-simultaneous requests to actually exercise — a normal sequential
+test only reaches the first path.
+**Also visit** `/chats` as both roles: conversations from both the
+direct-booking and job-post flows appear, with an accurate unread count
+per conversation (send a message from one session, confirm the count
+appears in the other without a page reload having been needed to
+compute it — only to *see* it update live, since this list itself
+doesn't hold a socket connection, unlike the chat page itself).
 **Actual result:** not run.
 **Status:** ⬜ PASS / ⬜ FAIL
 

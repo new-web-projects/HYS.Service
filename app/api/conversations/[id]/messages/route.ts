@@ -96,7 +96,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!isCustomer) {
       return NextResponse.json({ error: "Only the customer can accept a price." }, { status: 403 });
     }
-    if (conversation.status !== "PRICE_PROPOSED") {
+    if (conversation.status !== "PRICE_PROPOSED" || conversation.customerConfirmed) {
       return NextResponse.json({ error: "There's no active price proposal to accept." }, { status: 409 });
     }
     if (!conversation.booking) {
@@ -114,7 +114,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!isWorker) {
       return NextResponse.json({ error: "Only the worker can give the final confirmation." }, { status: 403 });
     }
-    if (!conversation.customerConfirmed || conversation.proposedPrice === null) {
+    if (!conversation.customerConfirmed || conversation.workerConfirmed || conversation.proposedPrice === null) {
       return NextResponse.json(
         { error: "The customer needs to accept the proposed price first." },
         { status: 409 },
