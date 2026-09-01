@@ -94,11 +94,21 @@ export default function CustomerBookingsPage() {
                   <p className="text-sm font-medium text-accent">
                     {b.finalPrice ? `₹${Number(b.finalPrice).toLocaleString("en-IN")}` : b.basePrice ? `~₹${Number(b.basePrice).toLocaleString("en-IN")}` : "—"}
                   </p>
-                  {b.conversation && (
-                    <Link href={`/chat/${b.conversation.id}`} className="text-sm font-medium underline">
-                      Open chat
-                    </Link>
-                  )}
+                  <div className="flex items-center gap-3">
+                    {b.status === "READY_FOR_PAYMENT" && (
+                      <Link
+                        href={`/customer-bookings/${b.id}/pay`}
+                        className="rounded-md bg-primary px-3 py-1 text-sm font-medium text-primary-foreground"
+                      >
+                        Pay now
+                      </Link>
+                    )}
+                    {b.conversation && (
+                      <Link href={`/chat/${b.conversation.id}`} className="text-sm font-medium underline">
+                        Open chat
+                      </Link>
+                    )}
+                  </div>
                 </div>
               </li>
             ))}

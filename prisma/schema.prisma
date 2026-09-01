@@ -109,6 +109,11 @@ enum PaymentGateway {
   PAYTM
 }
 
+enum PaymentMode {
+  TEST
+  LIVE
+}
+
 enum TransactionStatus {
   CREATED
   SUCCESS
@@ -608,6 +613,12 @@ model Settings {
   razorpayEnabled Boolean @default(false)
   phonepeEnabled  Boolean @default(false)
   paytmEnabled    Boolean @default(false)
+  // Which credential pair each gateway module reads (e.g. RAZORPAY_TEST_KEY_ID
+  // vs RAZORPAY_LIVE_KEY_ID) — deliberately a DB toggle like the enabled
+  // flags above it, not a bare env var, so switching modes doesn't need a
+  // redeploy. The actual secret values for either mode still only ever
+  // live in env vars, matching the comment above.
+  paymentMode PaymentMode @default(TEST)
 
   storageProvider StorageProvider @default(CLOUDINARY)
 

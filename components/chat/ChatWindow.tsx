@@ -44,7 +44,7 @@ const BOOKING_STATUS_COPY: Record<string, (names: { customer: string; worker: st
   PENDING_RESPONSE: ({ worker }) => `Waiting for ${worker} to accept this request.`,
   DISCUSSING: () => "Chat is open — agree on a final price below.",
   PRICE_PENDING: ({ customer }) => `${customer} accepted the price — waiting for the worker to confirm it.`,
-  READY_FOR_PAYMENT: () => "Price confirmed. Payment isn't wired up yet — that's Part 8.",
+  READY_FOR_PAYMENT: () => "Price confirmed — ready for payment.",
   PAID: () => "Paid — job in progress.",
   COMPLETED: () => "This job is complete.",
   CANCELLED: () => "This booking was cancelled.",
@@ -350,14 +350,16 @@ export function ChatWindow({ conversationId, viewerId }: { conversationId: strin
                 Once payment is completed, {isCustomer ? "you" : "the customer"} won&apos;t be able to cancel this
                 booking.
               </p>
-              <button
-                type="button"
-                disabled
-                title="Payment isn't wired up yet — that's Part 8"
-                className="mt-2 w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground opacity-50 sm:w-auto"
-              >
-                Proceed to payment
-              </button>
+              {isCustomer ? (
+                <Link
+                  href={`/customer-bookings/${conversation.booking.id}/pay`}
+                  className="mt-2 inline-block w-full rounded-md bg-primary px-4 py-2 text-center text-sm font-medium text-primary-foreground sm:w-auto"
+                >
+                  Proceed to payment
+                </Link>
+              ) : (
+                <p className="mt-2 text-xs text-muted">Waiting for the customer to complete payment.</p>
+              )}
             </>
           )}
           {conversation.booking.status === "PAID" && (

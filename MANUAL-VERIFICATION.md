@@ -375,6 +375,109 @@ Vercel's build settings need the build command to stay `next build`
 
 ---
 
+## Part 8 additions
+
+Same stub technique as Parts 3 and 7 (documented there) got a real
+`next build` clean through everything in this Part too — every new route
+registers correctly, zero TypeScript errors, zero ESLint errors. What
+that can't cover: an actual gateway sandbox account, a real database, and
+two specific URLs I couldn't get a directly-quoted confirmation for.
+
+### 17. Confirm the PhonePe and Paytm LIVE base URLs
+
+**What to test:** before going live (not before testing in sandbox — the
+TEST/sandbox URLs for both are directly confirmed against their current
+docs), log into each gateway's business dashboard and confirm the exact
+production API base URL matches what's in `.env.example`'s commented
+defaults (`lib/payment-gateways/phonepe.ts` and `paytm.ts` also state
+these inline).
+**Where:** PhonePe Business Dashboard; Paytm Business Dashboard.
+**Expected result:** `PHONEPE_LIVE_API_BASE_URL`/`PHONEPE_LIVE_AUTH_URL`
+and `PAYTM_LIVE_BASE_URL` match what each dashboard states. If they
+don't, set the env var override rather than editing the gateway module —
+both already read from `process.env.X ?? <documented default>`.
+**Actual result:** not verified — I found strong, consistent documented
+patterns for both but never got a page that stated the LIVE URL as an
+exact string the way I did for every TEST/sandbox URL and for PhonePe's
+LIVE auth URL specifically (that one *is* directly confirmed).
+**Status:** ⬜ PASS / ⬜ FAIL
+
+### 18. Razorpay end-to-end, sandbox
+
+**What to test:** enable Razorpay in `Settings` (direct DB write or
+Prisma Studio — no admin UI exists yet, Part 10's job), leave
+`paymentMode` at its `TEST` default, take a booking to
+`READY_FOR_PAYMENT` (Part 7's flow), pay with a Razorpay test card.
+**Where:** `/customer-bookings/[id]/pay`.
+**Expected result:** Checkout opens with the correct amount (final price
++ platform fee + GST, matching what the page displayed); on success,
+lands on `/customer-bookings/[id]/payment-result` showing the OTP;
+`Booking.status` is `PAID`; an `Earning` row exists with `status: HELD`
+and `amount` equal to `finalPrice` only (not the total the customer
+paid); both parties' phone numbers are now visible via
+`GET /api/bookings/[id]`; both get a notification, customer's includes
+an email with the OTP.
+**Actual result:** not run — needs a real Razorpay test account.
+**Status:** ⬜ PASS / ⬜ FAIL
+**Required config:** `RAZORPAY_TEST_KEY_ID`, `RAZORPAY_TEST_KEY_SECRET`,
+a Razorpay test-mode account.
+
+### 19. PhonePe and Paytm end-to-end, sandbox
+
+**What to test:** same flow as #18, once for each gateway.
+**Expected result:** same outcome as #18. PhonePe: browser redirects to
+PhonePe's PayPage, then back to the result page, which polls
+`/api/bookings/[id]/payment/status` until `PAID` appears (confirms the
+active-reconciliation fallback works, not just the webhook). Paytm:
+browser form-POSTs to Paytm's payment page, then Paytm POSTs back to
+`/api/payments/paytm/callback`, which redirects to the same result page.
+**Actual result:** not run.
+**Status:** ⬜ PASS / ⬜ FAIL
+**Required config:** sandbox credentials for both, each gateway enabled
+in `Settings`.
+
+### 20. Webhook idempotency
+
+**What to test:** replay the same Razorpay or PhonePe webhook payload
+twice (most gateway dashboards have a "resend webhook" button for
+exactly this).
+**Where:** `/api/payments/razorpay/webhook`, `/api/payments/phonepe/webhook`.
+**Expected result:** the second call returns `200 {"ok": true}` but
+changes nothing — no second `Earning` row, no second notification, no
+error. `markBookingPaid`'s idempotency check (`booking.status === "PAID"`
+already) is what should make this safe; confirms it actually does rather
+than just reasoning that it should.
+**Actual result:** not run.
+**Status:** ⬜ PASS / ⬜ FAIL
+
+### 21. Gateway enable/disable and mode switching
+
+**What to test:** with all three gateways disabled in `Settings`, load
+the payment page; enable one, reload; set `paymentMode` to `LIVE` without
+setting `RAZORPAY_LIVE_KEY_ID`.
+**Expected result:** all-disabled shows "No payment methods are
+currently available" with no crash; enabling one makes exactly that one
+button appear; switching to `LIVE` mode without the live credential set
+throws a clear "Missing RAZORPAY_LIVE_KEY_ID" error from
+`credentials.ts` rather than silently using test credentials or crashing
+unhelpfully.
+**Actual result:** not run.
+**Status:** ⬜ PASS / ⬜ FAIL
+
+### 22. Mobile — payment page and result page
+
+**What to test:** the gateway-selection buttons, the price breakdown
+table, and the OTP display on a narrow viewport.
+**Expected result:** no horizontal overflow (the breakdown uses a
+2-column grid at a fixed max-width container, same defensive pattern as
+Part 7's chat breakdown); the OTP's `tracking-widest` large text doesn't
+force horizontal scroll on a small screen.
+**Actual result:** not run — this environment has no browser or visual
+rendering tool, same limitation noted for Part 7's UI.
+**Status:** ⬜ PASS / ⬜ FAIL
+
+---
+
 If step 1 or 2 fails with something other than a plain network/timeout
 error, paste the output back — that would mean something in
 `prisma.config.ts` or `schema.prisma` needs adjusting against whatever the
