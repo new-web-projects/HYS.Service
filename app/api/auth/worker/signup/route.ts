@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { prisma, type TransactionClient } from "@/lib/prisma";
 import { rateLimit } from "@/lib/rate-limit";
 import { rejectCrossOrigin } from "@/lib/same-origin";
 
@@ -74,7 +74,7 @@ export async function POST(request: Request) {
   // comment. This part (category resolution + profile row) at least runs
   // as one Prisma transaction, so it can't half-succeed on its own.
   try {
-    await prisma.$transaction(async (tx: typeof prisma) => {
+    await prisma.$transaction(async (tx: TransactionClient) => {
       let resolvedCategoryId = categoryId;
 
       if (newCategoryName) {

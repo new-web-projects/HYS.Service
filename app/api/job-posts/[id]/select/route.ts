@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireRoleApi } from "@/lib/auth-guard";
-import { prisma } from "@/lib/prisma";
+import { prisma, type TransactionClient } from "@/lib/prisma";
 import { rejectCrossOrigin } from "@/lib/same-origin";
 import { selectWorkerSchema } from "@/lib/chat-validators";
 import { notify } from "@/lib/notifications";
@@ -37,7 +37,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   let result: { booking: { id: string }; otherWorkerIds: string[] };
   try {
-    result = await prisma.$transaction(async (tx: typeof prisma) => {
+    result = await prisma.$transaction(async (tx: TransactionClient) => {
       const booking = await tx.booking.create({
         data: {
           origin: "JOB_POST",

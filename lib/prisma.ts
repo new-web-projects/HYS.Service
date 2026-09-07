@@ -1,5 +1,5 @@
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "./generated/prisma/client";
+import { PrismaClient, Prisma } from "./generated/prisma/client";
 import { env } from "./env";
 
 /**
@@ -31,3 +31,14 @@ export const prisma = globalForPrisma.prisma ?? createPrismaClient();
 if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma;
 }
+
+/**
+ * The type every `prisma.$transaction(async (tx) => ...)` callback
+ * parameter should use — `typeof prisma` is NOT correct here despite
+ * looking reasonable: $transaction's real signature expects
+ * `Omit<PrismaClient, "$connect" | "$disconnect" | ...>` (no nested
+ * transactions, no connection management from inside one), confirmed
+ * directly against real generated-client TypeScript errors. Every call
+ * site in this project should import this rather than re-deriving it.
+ */
+export type TransactionClient = Prisma.TransactionClient;

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireRoleApi } from "@/lib/auth-guard";
-import { prisma } from "@/lib/prisma";
+import { prisma, type TransactionClient } from "@/lib/prisma";
 import { rateLimit } from "@/lib/rate-limit";
 import { rejectCrossOrigin } from "@/lib/same-origin";
 import { createBookingSchema } from "@/lib/chat-validators";
@@ -87,7 +87,7 @@ export async function POST(request: Request) {
     customerLocation,
   );
 
-  const { booking } = await prisma.$transaction(async (tx: typeof prisma) => {
+  const { booking } = await prisma.$transaction(async (tx: TransactionClient) => {
     const booking = await tx.booking.create({
       data: {
         origin: "DIRECT",

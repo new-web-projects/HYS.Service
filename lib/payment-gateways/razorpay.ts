@@ -22,6 +22,41 @@ export async function createRazorpayOrder(
   return { orderId: order.id, keyId, amountPaise };
 }
 
+/**
+ * Active reconciliation fallback — same role for Razorpay that
+ * checkPhonePeOrderStatus/checkPaytmTransactionStatus play for their
+ * gateways. Not the primary path (the direct client-callback verify
+ * route usually resolves this before the customer ever sees the result
+ * page, and the webhook is the durable backstop for everything else),
+ * but a real gap without it: if the browser drops between the Checkout
+ * handler firing and the verify call completing, AND the webhook is
+ * delayed, there was previously no active way to reconcile — only
+ * passively waiting. Mirrors the other two gateways' status route
+ * coverage instead of leaving Razorpay as the one exception.
+ */
+export async function checkRazorpayOrderStatus(
+  orderId: string,
+): Promise<{ paid: boolean; paymentId: string | null; raw: unknown }> {
+  const { keyId, keySecret } = await getRazorpayCredentials();
+  const instance = new Razorpay({ key_id: keyId, key_secret: keySecret });
+
+  const order = await instance.orders.fetch(orderId);
+  if (order.status !== "paid") {
+    return { paid: false, paymentId: null, raw: order };
+  }
+
+  const { items } = await instance.orders.fetchPayments(orderId);
+  const captured = items.find((p) => p.status === "captured");
+  if (!captured) {
+    // Order says paid but no captured payment on record — treat as not
+    // yet confirmed rather than guessing; the webhook or a later poll
+    // will resolve this once Razorpay's own records catch up.
+    return { paid: false, paymentId: null, raw: { order, payments: items } };
+  }
+
+  return { paid: true, paymentId: captured.id, raw: { order, payment: captured } };
+}
+
 function timingSafeEqualHex(expectedHex: string, actualHex: string): boolean {
   // timingSafeEqual throws on mismatched buffer lengths rather than
   // returning false, which a tampered/malformed signature could easily

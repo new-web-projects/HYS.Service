@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@/lib/generated/prisma/client";
 import { haversineDistanceKm, boundingBox } from "@/lib/distance";
 
 export type WorkerSearchParams = {
@@ -24,11 +25,11 @@ type Candidate = {
   userId: string;
   latitude: number | null;
   longitude: number | null;
-  rating: number;
+  rating: Prisma.Decimal;
   reviewCount: number;
   isAvailable: boolean;
   isVerified: boolean;
-  startingPrice: number;
+  startingPrice: Prisma.Decimal;
   experienceYears: number;
   city: string | null;
   skills: string[];

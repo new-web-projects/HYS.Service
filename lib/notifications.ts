@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@/lib/generated/prisma/client";
 import { getIO } from "@/lib/socket-server";
 import { sendEmail } from "@/lib/email";
 
@@ -28,7 +29,12 @@ export async function notify(input: NotifyInput) {
       type: input.type,
       title: input.title,
       body: input.body,
-      data: input.data,
+      // Omitted entirely when absent, not passed as a literal `undefined`
+      // — Prisma's generated type for an optional Json field doesn't
+      // accept `undefined` the way a plain optional object property
+      // would; the cast to InputJsonValue is safe here since every call
+      // site only ever passes plain JSON-serializable data.
+      ...(input.data ? { data: input.data as Prisma.InputJsonValue } : {}),
     },
   });
 

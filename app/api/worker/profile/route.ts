@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { prisma, type TransactionClient } from "@/lib/prisma";
 import { requireRoleApi } from "@/lib/auth-guard";
 import { rejectCrossOrigin } from "@/lib/same-origin";
 import { workerProfileCompletion } from "@/lib/profile-completion";
@@ -95,7 +95,7 @@ export async function PATCH(request: Request) {
   const { name, phone, gender, categoryId, newCategoryName, ...profileFields } = parsed.data;
 
   try {
-    await prisma.$transaction(async (tx: typeof prisma) => {
+    await prisma.$transaction(async (tx: TransactionClient) => {
       if (name || phone || gender) {
         await tx.user.update({
           where: { id: user.id },

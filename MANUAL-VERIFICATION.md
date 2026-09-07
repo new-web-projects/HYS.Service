@@ -478,6 +478,69 @@ rendering tool, same limitation noted for Part 7's UI.
 
 ---
 
+## Part 8 audit round — bugs confirmed against a real environment
+
+The user ran this project in an actual GitHub Codespace with a real
+`prisma generate` (this sandbox still can't — unchanged network
+restriction) and sent a screenshot showing 13 real TypeScript errors.
+Every one is now fixed and traced to one of two root causes, both
+inherent to developing against a stub in a network-restricted sandbox
+rather than a mistake specific to one file:
+
+1. **`(tx: typeof prisma) => ...` is structurally wrong** for
+   `$transaction` callbacks — the real signature expects
+   `Omit<PrismaClient, "$connect" | "$disconnect" | "$transaction" | ...>`
+   (no nested transactions/connection management from inside one), not
+   the full client type. Fixed in 6 files by adding `TransactionClient`
+   as a proper exported type from `lib/prisma.ts` and using it
+   everywhere instead of the shortcut — including `app/api/auth/worker/
+   signup/route.ts` and `app/api/worker/profile/route.ts`, pre-existing
+   Part 5 files neither Part 7 nor Part 8 had touched, confirming this
+   wasn't introduced by either of those Parts specifically.
+2. **Decimal fields typed as `number`** in hand-written type stand-ins
+   (used in places where real Prisma inference isn't available without
+   `generate`) — `lib/worker-search.ts`'s `rating`/`startingPrice`
+   (pre-existing, Part 6) were the two the screenshot caught. A
+   proactive sweep afterward (not prompted by the screenshot) found no
+   further instances of this specific pattern beyond what was already
+   fixed.
+
+Also fixed: two `Json`-field type mismatches (`Notification.data`,
+`Transaction.rawResponse` both need `Prisma.InputJsonValue`, not a bare
+`Record<string, unknown>`), and a genuine, now-implemented gap in
+Razorpay's status reconciliation — see the Step 3 investigation in this
+round's chat response for the full reasoning; `checkRazorpayOrderStatus`
+now exists in `lib/payment-gateways/razorpay.ts` and item 17 below is
+updated accordingly.
+
+A real `next build` (not just the stub-based `tsc`) is clean across all
+60 routes after every fix. `npx prisma generate` itself is still the
+one thing this sandbox cannot do — if further real-environment errors
+turn up that these fixes don't cover, they're most likely more instances
+of the same two root causes above, not a new category.
+
+---
+
+### 23. Razorpay status reconciliation (new — closes the Step 3 gap)
+
+**What to test:** simulate a dropped connection between the Razorpay
+Checkout `handler` firing and the `/api/payments/razorpay/verify` call
+completing (e.g. throttle/kill the network in devtools right after a
+successful test payment, before the verify request finishes), then
+revisit `/customer-bookings/[id]/payment-result` and let it poll.
+**Where:** `/api/bookings/[id]/payment/status`, which now calls
+`checkRazorpayOrderStatus` for a pending Razorpay transaction the same
+way it already did for PhonePe/Paytm.
+**Expected result:** the poll actively queries Razorpay's Orders API,
+finds the order `status: "paid"` with a `captured` payment, and calls
+`markBookingPaid` from the poll path — not just passively waiting on the
+webhook.
+**Actual result:** not run — needs a real Razorpay test account and a
+deliberately-interrupted network condition.
+**Status:** ⬜ PASS / ⬜ FAIL
+
+---
+
 If step 1 or 2 fails with something other than a plain network/timeout
 error, paste the output back — that would mean something in
 `prisma.config.ts` or `schema.prisma` needs adjusting against whatever the

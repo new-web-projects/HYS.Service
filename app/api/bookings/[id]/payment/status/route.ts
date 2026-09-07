@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireUserApi } from "@/lib/auth-guard";
 import { prisma } from "@/lib/prisma";
+import { checkRazorpayOrderStatus } from "@/lib/payment-gateways/razorpay";
 import { checkPhonePeOrderStatus } from "@/lib/payment-gateways/phonepe";
 import { checkPaytmTransactionStatus } from "@/lib/payment-gateways/paytm";
 import { markBookingPaid } from "@/lib/payment-gateways/mark-paid";
@@ -37,7 +38,16 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   }
 
   try {
-    if (pendingTxn.gateway === "PHONEPE") {
+    if (pendingTxn.gateway === "RAZORPAY") {
+      const { paid, paymentId, raw } = await checkRazorpayOrderStatus(pendingTxn.gatewayOrderId);
+      if (paid && paymentId) {
+        const result = await markBookingPaid(id, "RAZORPAY", paymentId, raw as Record<string, unknown>);
+        return NextResponse.json({ status: "PAID", otp: result.otp });
+      }
+      // No explicit FAILED transition here, unlike PhonePe/Paytm below —
+      // Razorpay's order stays "created"/"attempted" through a still-open
+      // Checkout modal, which isn't a failure, just not finished yet.
+    } else if (pendingTxn.gateway === "PHONEPE") {
       const { state, raw } = await checkPhonePeOrderStatus(pendingTxn.gatewayOrderId);
       if (state === "COMPLETED") {
         const result = await markBookingPaid(id, "PHONEPE", pendingTxn.gatewayOrderId, raw as Record<string, unknown>);
@@ -56,9 +66,6 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
         await prisma.transaction.update({ where: { id: pendingTxn.id }, data: { status: "FAILED" } });
       }
     }
-    // RAZORPAY isn't reconciled here — its direct-callback verify route
-    // is fast enough that this poll path is a Phone Pe/Paytm-specific
-    // safety net; Razorpay also has its own webhook as a backstop.
   } catch (err: unknown) {
     // A transient failure calling the gateway's status API shouldn't
     // surface as "payment failed" — just report current state and let

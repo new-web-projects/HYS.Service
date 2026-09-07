@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { notify } from "@/lib/notifications";
 import { getIO } from "@/lib/socket-server";
 import type { PaymentGateway } from "@/lib/generated/prisma/client";
+import { Prisma } from "@/lib/generated/prisma/client";
 
 function generateOtp(): string {
   // crypto.randomInt, not Math.random() — this OTP is the sole gate
@@ -58,7 +59,7 @@ export async function markBookingPaid(
     }),
     prisma.transaction.updateMany({
       where: { bookingId, gateway, status: "CREATED" },
-      data: { status: "SUCCESS", gatewayPaymentId, rawResponse },
+      data: { status: "SUCCESS", gatewayPaymentId, rawResponse: rawResponse as Prisma.InputJsonValue },
     }),
     // Worker earns the agreed price, not the customer's total — platform
     // fee + GST is platform revenue, never part of the worker's earning.

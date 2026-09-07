@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireRoleApi } from "@/lib/auth-guard";
-import { prisma } from "@/lib/prisma";
+import { prisma, type TransactionClient } from "@/lib/prisma";
 import { rateLimit } from "@/lib/rate-limit";
 import { rejectCrossOrigin } from "@/lib/same-origin";
 import { expressInterestSchema } from "@/lib/chat-validators";
@@ -37,7 +37,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "You've already expressed interest in this job." }, { status: 409 });
   }
 
-  const conversation = await prisma.$transaction(async (tx: typeof prisma) => {
+  const conversation = await prisma.$transaction(async (tx: TransactionClient) => {
     const conversation = await tx.conversation.create({
       data: {
         customerId: jobPost.customerId,
