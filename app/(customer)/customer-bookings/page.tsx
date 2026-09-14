@@ -11,6 +11,7 @@ type Booking = {
   finalPrice: string | null;
   worker: { id: string; name: string; image: string | null };
   conversation: { id: string } | null;
+  review: { id: string; rating: number } | null;
   updatedAt: string;
 };
 
@@ -103,6 +104,15 @@ export default function CustomerBookingsPage() {
                         Pay now
                       </Link>
                     )}
+                    {b.status === "COMPLETED" && b.conversation && !b.review && (
+                      <Link
+                        href={`/chat/${b.conversation.id}`}
+                        className="rounded-md border border-accent px-3 py-1 text-sm font-medium text-accent"
+                      >
+                        Leave a review
+                      </Link>
+                    )}
+                    {b.review && <span className="text-xs text-muted">Reviewed ({b.review.rating}★)</span>}
                     {b.conversation && (
                       <Link href={`/chat/${b.conversation.id}`} className="text-sm font-medium underline">
                         Open chat

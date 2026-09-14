@@ -546,3 +546,125 @@ error, paste the output back — that would mean something in
 `prisma.config.ts` or `schema.prisma` needs adjusting against whatever the
 installed Prisma version actually expects, which this sandbox couldn't
 confirm directly (see the Part 3 summary).
+
+---
+
+## Part 9 — Earnings, Withdrawal, Reviews
+
+Same sandbox limitation as every prior Part: no live Postgres/Redis, and
+`prisma generate` still can't reach `binaries.prisma.sh` here (confirmed
+again this Part — see item 29). `npm run lint` is clean across the whole
+repo including everything added this Part; `npx tsc --noEmit`'s ~27
+errors all trace to the missing generated client (identical error on
+pre-existing Part 3/7/8 files, not just new ones) plus one unrelated,
+pre-existing Next.js typegen gap in `app/layout.tsx` — not a Part 9
+regression. `npm run build` reaches and fails at the same single,
+expected `lib/prisma.ts` import line every previous Part's build attempt
+did.
+
+### 24. Booking completion via OTP
+
+**What to test:** as the worker on a `PAID` booking, open its chat page
+and enter the OTP the customer received at payment time.
+**Where:** `/api/bookings/[id]/complete`, surfaced in `ChatWindow.tsx`'s
+`PAID`-status banner (worker view only).
+**Expected result:** correct OTP → booking moves to `COMPLETED`, its
+`Earning` moves `HELD → AVAILABLE`, the customer gets a notification
+prompting a review, `WorkerProfile.ordersCompleted` increments. Wrong
+OTP → clear error, no state change. 6 wrong guesses inside 15 minutes →
+429 rate-limited regardless of who's asking.
+**Actual result:** not run — needs a live booking that's actually
+reached `PAID`, which itself needs a real payment-gateway sandbox.
+**Status:** ⬜ PASS / ⬜ FAIL
+
+### 25. Withdrawal request — straightforward case
+
+**What to test:** as a worker with, say, exactly one ₹5,000 `AVAILABLE`
+earning, request a ₹5,000 withdrawal via UPI.
+**Where:** `/worker-earnings`, `POST /api/worker/withdrawals`.
+**Expected result:** the earning flips to `RESERVED`, a `Withdrawal`
+(`PENDING`) and one `WithdrawalAllocation` for the full ₹5,000 are
+created, the fee/net breakdown shown matches
+`Settings.withdrawalFeePercent` applied to ₹5,000, and a second
+withdrawal attempt is rejected (409) while the first is still pending.
+**Actual result:** not run — needs a live database.
+**Status:** ⬜ PASS / ⬜ FAIL
+
+### 26. Withdrawal request — the split-earning case
+
+**What to test:** as a worker whose only `AVAILABLE` earnings are, say,
+₹3,000 and ₹4,000 (sum ₹7,000 — no combination sums exactly to a round
+₹1,000 figure below that), request a ₹5,000 withdrawal.
+**Where:** same endpoint as above; this exercises
+`allocateEarningsForWithdrawal` in `lib/earnings.ts` specifically.
+**Expected result:** the ₹3,000 earning is fully allocated and flips to
+`RESERVED`; the ₹4,000 earning gets a ₹2,000 allocation and **stays
+`AVAILABLE`** (its genuine ₹2,000 remainder is still free for a future
+withdrawal — this is the entire reason `WithdrawalAllocation` exists
+instead of reusing V1's approach of locking whole earnings). Balance
+check: available balance immediately after should read ₹2,000, not ₹0
+and not the pre-request ₹7,000.
+**Actual result:** not run — needs a live database with this exact
+earnings shape, which isn't reachable through the UI alone (would need
+either two completed bookings priced exactly this way, or a direct DB
+seed).
+**Status:** ⬜ PASS / ⬜ FAIL
+
+### 27. Withdrawal approval and rejection (admin)
+
+**What to test:** `PATCH /api/admin/withdrawals/[id]` with
+`{"action":"approve"}` on a pending withdrawal, and separately
+`{"action":"reject","rejectionReason":"..."}` on another. No admin UI
+exists yet for this (Part 10's job, per the master prompt's own Part
+structure) — call the route directly.
+**Where:** `/api/admin/withdrawals`, `/api/admin/withdrawals/[id]`.
+**Expected result:** approve → fully-consumed allocated earnings flip to
+`WITHDRAWN` with `withdrawnAt` set, the partially-consumed one (if any)
+stays `AVAILABLE` for its remainder, worker gets a notification. Reject
+→ all of this withdrawal's allocations are deleted and every earning
+they touched reverts to `AVAILABLE`, worker gets a notification with the
+reason. Either way, a second decision on the same withdrawal is
+rejected (409).
+**Actual result:** not run — needs a live database and an admin session.
+**Status:** ⬜ PASS / ⬜ FAIL
+
+### 28. Review submission and rating recompute
+
+**What to test:** as the customer on a `COMPLETED` booking with no
+existing review, submit a rating and comment from the chat page; then
+try submitting a second review on the same booking.
+**Where:** `ChatWindow.tsx`'s `COMPLETED`-status form, `POST
+/api/bookings/[id]/review`, `GET /api/workers/[id]/reviews` (public
+profile).
+**Expected result:** first submission succeeds, `WorkerProfile.rating`
+and `reviewCount` are recomputed from a real `AVG`/`COUNT` over all of
+that worker's reviews (not an incremental running average), worker gets
+a notification. Second attempt on the same booking → 409, and the
+schema's own `Review.bookingId @unique` is the backstop even if the
+app-level check were somehow bypassed.
+**Actual result:** not run — needs a live database.
+**Status:** ⬜ PASS / ⬜ FAIL
+
+### 29. Dependency security audit
+
+**What to test:** `npm audit` after this Part's `npm install`.
+**Where:** whole-project dependency tree.
+**Actual result:** ran for real (this doesn't need a live DB). Found 6
+advisories. Fixed: **Next.js 16.0.0–16.3.2, critical, unauthenticated
+RCE** (Windows-hosted servers, and via AVIF in the Image Optimization
+API) — the exact version this project had pinned (16.3.0). Bumped
+`next`, `@next/env`, and `eslint-config-next` to 16.3.5 (confirmed
+current `latest` via the npm registry directly, not just the audit's
+suggestion), re-ran `npm install`, and re-verified lint/build both still
+behave identically to before the bump. Also fixed: `nodemailer` (high;
+credential leak via a legacy call signature, IDN allow-list bypass,
+ReDoS) via plain `npm audit fix` — non-breaking. **Deliberately left
+unfixed:** `deepmerge-ts`/`mysql2`, high severity, reachable only through
+`@prisma/config`'s own internal tooling dependencies — this app's
+`DATABASE_URL` is always `postgresql://`, so the vulnerable MySQL2 code
+path is never invoked at runtime. The only available fix forces
+`prisma@6.19.3`, a major downgrade from the 7.x driver-adapter
+architecture Part 3 deliberately chose and Part 8's audit round
+specifically verified against — not an appropriate unilateral fix for a
+dependency-of-a-dependency that isn't reachable in this app's own code.
+**Status:** ✅ next/nodemailer fixed and reverified · ⬜ deepmerge-ts/mysql2 — intentionally deferred, flag if this project ever adds a second, MySQL-backed data source

@@ -22,6 +22,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
           finalPrice: true,
           platformFee: true,
           gstAmount: true,
+          // Part 9: lets ChatWindow show the OTP-completion form (worker,
+          // status PAID) and the review form (customer, status COMPLETED,
+          // no review yet) without a separate round-trip.
+          review: { select: { id: true } },
         },
       },
     },

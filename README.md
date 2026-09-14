@@ -6,11 +6,13 @@ no Firebase. See the Part 1 audit/architecture document for the full
 rationale and the complete Part-by-part build plan; this README tracks the
 project as it actually exists today.
 
-**Status: Part 6 — Categories + Location + Service Marketplace.** The
-public service search, worker cards, filters, and public worker profile
-page are real and build-verified. Booking (the "Book worker" button) is
-visibly present but intentionally disabled — Part 7 wires it up. No
-chat/payment/earnings features exist yet.
+**Status: Part 9 — Earnings, Withdrawal, Reviews.** Booking (direct and
+job-post), real-time chat with price negotiation, all three payment
+gateways, job completion via OTP, worker earnings/withdrawals, and
+customer reviews are real and build-verified (build fails only at the
+one expected, sandbox-only Prisma-generate point — see Verifying this
+Part). The Admin Panel beyond `/admin/login` doesn't exist yet — Part 10.
+Media/document upload doesn't exist yet — Part 11.
 
 ## Stack
 
@@ -19,10 +21,14 @@ chat/payment/earnings features exist yet.
 | Framework | Next.js 16 (App Router, Turbopack), React 19, TypeScript | ✅ Part 2 |
 | Styling | Tailwind CSS v4 | ✅ Part 2 |
 | Database | PostgreSQL, Prisma ORM 7 (driver-adapter mode via `@prisma/adapter-pg`) | ✅ Part 3 |
-| Cache / rate limiting | Redis (`ioredis`) | ✅ Part 4 (rate limiting live; Part 7 adds pub/sub) |
+| Cache / rate limiting | Redis (`ioredis`) | ✅ Part 4 |
 | Auth | Better Auth (email/password, bcrypt, RBAC) | ✅ Part 4 |
-| Real-time | Socket.IO | Part 7 |
-| Payments | Razorpay, PhonePe, Paytm | Part 8 |
+| Real-time | Socket.IO (custom server; polling fallback on Vercel) | ✅ Part 7 |
+| Booking + chat | Unified direct/job-post booking model, price negotiation | ✅ Part 7 |
+| Payments | Razorpay, PhonePe, Paytm (all three, gateway-agnostic completion) | ✅ Part 8 |
+| Earnings / withdrawals | Allocation-ledger balance model, admin approve/reject API | ✅ Part 9 |
+| Reviews | Rating + comment, recomputed worker average | ✅ Part 9 |
+| Admin Panel | — | Part 10 |
 | Storage | Cloudinary, Amazon S3 (admin-selectable) | Part 11 |
 | Icons | `lucide-react` | ✅ Part 6 |
 
@@ -279,8 +285,8 @@ real in this sandbox:
   (0% ≤5km / 5% 5–15km / 10% 15–30km / 20% beyond), confirmed with real
   confidence in the Part 1 audit — unlike V1's city-auto-detection bounding
   boxes, which weren't, and so still aren't ported (see Part 5's notes).
-  Not wired into an actual price yet; there's no booking to price until
-  Part 7.
+  Wired into the reference price shown at booking creation as of Part 7
+  (`computeBookingBasePrice` in `lib/pricing.ts`).
 - **The public worker profile page's "Book worker" button is real but
   disabled**, with a visible note saying why, rather than either omitting
   it or wiring it to something that doesn't work yet.
@@ -308,8 +314,52 @@ real in this sandbox:
   the worker card and public profile page, not paraphrased as "From ₹X".
 - Also added on that re-check: a brief note on the public worker profile
   page that distant workers may carry a travel surcharge, shown before
-  payment once Part 7 exists — informational only, since there's no real
-  booking context yet to compute an actual figure against.
+  payment (informational only on this page — the real figure is computed
+  once an actual booking exists, as of Part 7).
+
+## Booking, chat, payments & earnings (Parts 7–9, brief)
+
+Full narrative write-ups for Parts 7 and 8 were never added here even
+though the work was completed and verified in `MANUAL-VERIFICATION.md`
+at the time — a documentation gap, not a functional one, caught and
+partly closed while completing Part 9. In short: Part 7 unified direct
+bookings and job-post bookings into one `Booking` model and state
+machine (`origin: DIRECT | JOB_POST`, distinguished only by which status
+they start at), built the price-negotiation flow inside each
+conversation, and added Socket.IO with a polling fallback for
+deployments (like Vercel) that can't hold a persistent WebSocket. Part 8
+added all three payment gateways behind one gateway-agnostic,
+idempotent completion function, with active reconciliation polling as a
+webhook backstop for all three.
+
+**Part 9** closes two things: first, a dependency gap from Parts 7/8 —
+nothing had ever built a route to verify the completion OTP those Parts
+issue, so no booking could reach `COMPLETED` and no earning could leave
+`HELD` (`/api/bookings/[id]/complete`, rate-limited against brute-forcing
+a 6-digit code). Second, the actual Part 9 scope: worker earnings and
+withdrawals, and customer reviews.
+
+The one real design problem here: withdrawal amounts are fixed to round
+₹1,000 multiples, but individual job earnings are arbitrary amounts, so
+a withdrawal essentially never divides evenly across whole earnings.
+Locking whole earnings against a withdrawal (the simplest reading of the
+Part 3 schema's original `Earning.withdrawalId` field) either forfeits
+the leftover — the exact bug this project's V1 audit found in V1's own
+withdrawal-approval code — or requires splitting an earning row, which
+breaks its one-row-per-booking shape. Fixed with one addition,
+`WithdrawalAllocation` (withdrawal ↔ earning ↔ amount): an earning's true
+remaining balance is always `amount − SUM(its allocations)`, so a
+₹4,000 earning can fund ₹2,000 of one withdrawal now and still have a
+genuinely free ₹2,000 for a later one, with no row ever split and no
+rupee ever silently lost. See `lib/earnings.ts` for the allocation,
+release, and finalize logic, and `MANUAL-VERIFICATION.md` items 24–29
+for what still needs a real database to confirm.
+
+Admin approval/rejection of a withdrawal is a real, working, role-gated
+API (`/api/admin/withdrawals[/[id]]`) with no UI yet — same "build the
+capability ahead of the panel that will call it" pattern Part 8 already
+established for payment-gateway settings. Part 10 gives both a real
+interface.
 
 ## Data model
 
@@ -317,7 +367,8 @@ real in this sandbox:
 `Account`/`Verification` — cross-checked against Better Auth's own CLI
 output, see "Verifying this Part"), role profiles (`CustomerProfile`/
 `WorkerProfile`), `Category`, booking + job-posting + chat (`JobPost`/
-`Booking`/`Conversation`/`Message`), `Review`/`Earning`/`Withdrawal`,
+`Booking`/`Conversation`/`Message`), `Review`/`Earning`/`Withdrawal`/
+`WithdrawalAllocation` (Part 9 — see below for why the last one exists),
 `Transaction`, `Notification`, `SupportTicket`/`SupportTicketMessage`, the
 CMS carried over from V1 (`Page`/`Media`), one consolidated `Settings` row,
 and `AuditLog`/`ErrorLog`/`ErrorReport`.
@@ -365,19 +416,29 @@ losing everything. Set this up once, before real data exists:
      app's own health check (`/api/health`) plus a manual login, to confirm
      the restored data is actually queryable before touching production.
   4. Only then repoint production's connection strings, if that's the goal.
-- **Migrations so far are additive only** — every Part up through this one
-  has only added tables/columns, never dropped or renamed one, so there's
-  nothing destructive in the history yet to worry about retroactively.
+- **Migrations were additive-only through Part 8** — every Part up to
+  that point only added tables/columns. **Part 9 is the first exception**:
+  `Earning.withdrawalId` (a plain FK) was removed in favor of the new
+  `WithdrawalAllocation` join table, which supersedes it (see "Booking,
+  chat, payments & earnings" above for why). If a dev/staging database
+  already has data in `Earning.withdrawalId` from before Part 9, back it
+  up before migrating — that specific column's data does not carry
+  forward automatically; it would need a one-off script to backfill
+  `WithdrawalAllocation` rows from it first.
 
 ## Structure
 
 ```
 app/
   layout.tsx, page.tsx, globals.css      # root shell + real homepage (Part 6) + design tokens (Part 6)
+  chat/[conversationId]/, chats/                    # dedicated chat page (Part 7) + conversation list
+  job-board/, notifications/
+  post-job/                                          # under (customer) below; listed for visibility
   api/health/                            # liveness check
   api/categories/                        # minimal read-only list (Part 10 owns full category management)
   api/workers/search/                    # service-page search + ranking
   api/workers/[id]/                      # public worker profile (no phone/email)
+  api/workers/[id]/reviews/              # public reviews list (Part 9)
   api/auth/[...all]/                     # Better Auth's own routes (session, verify, reset)
   api/auth/login/                        # custom: adds brute-force lock + CSRF check
   api/auth/customer/signup/              # custom: adds CustomerProfile creation + CSRF check
@@ -385,41 +446,72 @@ app/
   api/customer/profile/                  # GET/PATCH, role-gated
   api/worker/profile/                    # GET/PATCH, role-gated
   api/worker/availability/               # PATCH, quick toggle
+  api/worker/earnings/                   # balance summary + ledger (Part 9)
+  api/worker/withdrawals/                # GET history / POST request (Part 9)
+  api/admin/withdrawals/[[id]]/          # approve/reject — API only, no UI until Part 10 (Part 9)
+  api/bookings/                          # create (direct booking)
+  api/bookings/mine/                     # the signed-in user's own bookings
+  api/bookings/[id]/                     # GET (contact reveal post-payment) / PATCH (cancel)
+  api/bookings/[id]/respond/             # worker accept/reject
+  api/bookings/[id]/complete/            # worker submits completion OTP (Part 9 — see README body)
+  api/bookings/[id]/review/              # customer submits a review (Part 9)
+  api/bookings/[id]/payment/[[gateway]]/ # per-gateway order/payment creation + status poll
+  api/payments/razorpay/[[verify,webhook]]/, api/payments/phonepe/webhook/, api/payments/paytm/callback/
+  api/job-posts/                         # list/create
+  api/job-posts/[id]/, [id]/interest/, [id]/select/   # detail, worker quotes, customer picks one
+  api/conversations/mine/, [id]/, [id]/messages/, [id]/read/
+  api/notifications/
   auth/login/, auth/forgot-password/, auth/reset-password/, auth/verify-email/,
   auth/signup/customer/, auth/signup/worker/   # functional, minimal styling — Part 15 designs these
   admin/login/                           # role-gated separately from customer/worker login
-  (customer)/customer-dashboard/, (customer)/customer-profile/, (customer)/customer-account/
-  (worker)/worker-dashboard/, (worker)/worker-profile/, (worker)/worker-account/
+  (customer)/customer-dashboard/, customer-profile/, customer-account/, customer-bookings/,
+             customer-bookings/[id]/pay/, [id]/payment-result/, post-job/, customer-job-posts/[id]/
+  (worker)/worker-dashboard/, worker-profile/, worker-account/, worker-bookings/, worker-earnings/
                                           # all role-gated, flat URLs
   (public)/services/                     # the service marketplace search page
   worker/[id]/                           # public worker profile (no phone/email)
 components/
   shared/
-    LogoutButton.tsx        # used by both dashboard layouts
-    ChangePasswordForm.tsx  # used by both account-settings pages
+    LogoutButton.tsx, ChangePasswordForm.tsx, CustomerNav.tsx, WorkerNav.tsx, PublicNav.tsx
   public/
     WorkerCard.tsx      # the marketplace's signature card, per the spec's required fields
     ServiceFilters.tsx  # search/filter panel used by the service page
+  booking/
+    BookingRequestModal.tsx  # direct-booking creation, from a public worker profile
+  chat/
+    ChatWindow.tsx  # the whole booking lifecycle lives here: negotiation, cancel, pay-now link,
+                     # OTP completion (Part 9), review submission (Part 9)
 lib/
   env.ts                  # validated environment variables (extended every Part)
   utils.ts                 # cn() class-name helper
-  prisma.ts                 # Prisma Client singleton (driver-adapter mode)
+  prisma.ts                 # Prisma Client singleton (driver-adapter mode) + shared TransactionClient type
   redis.ts                   # Redis client singleton (lazy-connecting)
   auth.ts                     # Better Auth server config
   auth-client.ts                # Better Auth React client
   auth-guard.ts                  # requireUser()/requireRole() — the real authorization check
   same-origin.ts                  # CSRF defense-in-depth for custom mutating routes
-  rate-limit.ts                    # Redis-backed brute-force lockout
+  rate-limit.ts                    # Redis-backed brute-force lockout (login + OTP attempts)
+  settings.ts                       # singleton Settings row upsert
   email.ts                          # console-log in dev, real SMTP once configured
   geolocation.ts                     # browser geolocation wrapper (client-side)
   profile-completion.ts               # completion-percentage calculators
   distance.ts                          # Haversine + bounding-box helpers
-  distance-pricing.ts                   # V1's travel-surcharge tiers (not wired in yet — Part 7/8)
+  distance-pricing.ts                   # V1's travel-surcharge tiers, wired into booking base price (Part 7)
   worker-search.ts                       # service-page search/ranking query
+  pricing.ts                              # booking base price + platform-fee/GST breakdown
+  chat-validators.ts                       # Zod schemas: booking, chat, job-post, OTP, review lifecycle
+  notifications.ts                          # persisted + live (socket) + optional email, one call site
+  socket-server.ts, socket-client.ts         # Redis-adapter Socket.IO server + shared client singleton
+  earnings.ts                                 # Part 9: balance + withdrawal-allocation ledger logic
+  earnings-validators.ts                       # Part 9: withdrawal request Zod schema
+  payment-gateways/
+    credentials.ts, validate-request.ts, mark-paid.ts   # shared across all three gateways
+    razorpay.ts, phonepe.ts, paytm.ts                     # per-gateway order/verify/webhook logic
   generated/                              # prisma generate output — gitignored, not committed
 prisma/
   schema.prisma   # the full data model
   seed.ts         # creates the first Super Admin
+server.ts          # custom Node server: Next.js + Socket.IO (dev/VPS/Codespaces; not used by Vercel)
 proxy.ts           # lightweight request gate only — see "Authentication architecture"
 prisma.config.ts   # Prisma 7 connection config (the URL lives here, not in schema.prisma)
 docker-compose.yml # local Postgres + Redis

@@ -43,6 +43,9 @@ export async function GET(request: Request) {
       customer: { select: { id: true, name: true, image: true } },
       worker: { select: { id: true, name: true, image: true } },
       conversation: { select: { id: true } },
+      // Part 9: lets customer-bookings show "Leave a review" only where
+      // one doesn't already exist, without a separate round-trip.
+      review: { select: { id: true, rating: true } },
     },
     orderBy: { updatedAt: "desc" },
     take: 100,

@@ -454,18 +454,18 @@ model Review {
 }
 
 model Earning {
-  id           String        @id @default(cuid())
-  bookingId    String        @unique
-  booking      Booking       @relation(fields: [bookingId], references: [id])
-  workerId     String
-  worker       User          @relation(fields: [workerId], references: [id])
-  amount       Decimal       @db.Decimal(10, 2)
-  status       EarningStatus @default(HELD)
-  withdrawalId String?
-  withdrawal   Withdrawal?   @relation(fields: [withdrawalId], references: [id])
-  createdAt    DateTime      @default(now())
-  availableAt  DateTime?
-  withdrawnAt  DateTime?
+  id          String        @id @default(cuid())
+  bookingId   String        @unique
+  booking     Booking       @relation(fields: [bookingId], references: [id])
+  workerId    String
+  worker      User          @relation(fields: [workerId], references: [id])
+  amount      Decimal       @db.Decimal(10, 2)
+  status      EarningStatus @default(HELD)
+  createdAt   DateTime      @default(now())
+  availableAt DateTime?
+  withdrawnAt DateTime?
+
+  allocations WithdrawalAllocation[]
 
   @@index([workerId, status])
 }
@@ -487,9 +487,36 @@ model Withdrawal {
   processedAt       DateTime?
   rejectionReason   String?
 
-  earnings Earning[]
+  allocations WithdrawalAllocation[]
 
   @@index([workerId, status])
+}
+
+/// Part 9: precise ledger between Withdrawals and the Earning rows that
+/// fund them. Needed because withdrawal amounts are fixed to round
+/// ₹1,000 multiples (business rule) while individual job earnings are
+/// arbitrary amounts — a single earning almost never divides evenly into
+/// a withdrawal request, so the original Part 3 draft (a plain one-to-one
+/// Earning.withdrawalId FK) can't represent "this ₹6,000 earning partly
+/// funds withdrawal A now and its ₹1,000 remainder funds withdrawal B
+/// later" without either forfeiting the remainder (the exact bug — V1's
+/// withdrawal-approval bug — this schema exists to avoid) or splitting
+/// the Earning row, which would break its one-row-per-booking shape. An
+/// allocation table solves this without touching Booking's 1:1 relation
+/// to Earning at all: an earning's true remaining balance is always
+/// `amount - SUM(allocations.amount)`, reconcilable at any time from
+/// this table alone. See lib/earnings.ts for the selection/release logic.
+model WithdrawalAllocation {
+  id           String     @id @default(cuid())
+  withdrawalId String
+  withdrawal   Withdrawal @relation(fields: [withdrawalId], references: [id], onDelete: Cascade)
+  earningId    String
+  earning      Earning    @relation(fields: [earningId], references: [id])
+  amount       Decimal    @db.Decimal(10, 2)
+  createdAt    DateTime   @default(now())
+
+  @@index([withdrawalId])
+  @@index([earningId])
 }
 
 // ============================================================

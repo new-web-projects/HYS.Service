@@ -48,3 +48,15 @@ export const selectWorkerSchema = z.object({
   conversationId: z.string().min(1),
   scheduledAt: z.iso.datetime().optional(),
 });
+
+// Part 9: worker-submitted job-completion OTP and customer-submitted review.
+// Kept in this file rather than a new one since both extend the same
+// booking lifecycle the schemas above already cover.
+export const completeBookingSchema = z.object({
+  otp: z.string().regex(/^\d{6}$/, "Enter the 6-digit OTP."),
+});
+
+export const submitReviewSchema = z.object({
+  rating: z.number().int().min(1).max(5),
+  comment: z.string().max(1000).optional(),
+});

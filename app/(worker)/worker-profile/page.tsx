@@ -17,6 +17,8 @@ type Profile = {
   skills: string[];
   isAvailable: boolean;
   isVerified: boolean;
+  rating: string;
+  reviewCount: number;
   documentType: string | null;
   addressLine: string | null;
   city: string | null;
@@ -173,6 +175,11 @@ export default function WorkerProfilePage() {
         <br />
         <dt className="inline font-medium text-foreground">Email: </dt>
         <dd className="inline">{profile.email}</dd>
+        <br />
+        <dt className="inline font-medium text-foreground">Rating: </dt>
+        <dd className="inline">
+          {profile.reviewCount > 0 ? `${Number(profile.rating).toFixed(1)} ★ (${profile.reviewCount} reviews)` : "No reviews yet"}
+        </dd>
       </dl>
 
       <div className="mt-4 flex items-center justify-between rounded-md border border-muted/20 p-3">

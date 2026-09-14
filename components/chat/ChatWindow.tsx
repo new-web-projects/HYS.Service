@@ -31,6 +31,7 @@ type ConversationDetail = {
     finalPrice: string | null;
     platformFee: string | null;
     gstAmount: string | null;
+    review: { id: string } | null;
   } | null;
 };
 
@@ -72,6 +73,14 @@ export function ChatWindow({ conversationId, viewerId }: { conversationId: strin
   const [otherTyping, setOtherTyping] = useState(false);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [otp, setOtp] = useState("");
+  const [completing, setCompleting] = useState(false);
+  const [completeError, setCompleteError] = useState<string | null>(null);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState("");
+  const [submittingReview, setSubmittingReview] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [reviewSubmitted, setReviewSubmitted] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -270,6 +279,51 @@ export function ChatWindow({ conversationId, viewerId }: { conversationId: strin
     }
   }
 
+  async function handleCompleteJob(e: React.FormEvent) {
+    e.preventDefault();
+    if (!conversation?.booking || completing) return;
+    setCompleting(true);
+    setCompleteError(null);
+    try {
+      const res = await fetch(`/api/bookings/${conversation.booking.id}/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ otp }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setCompleteError(data.error ?? "Couldn't verify that OTP.");
+        return;
+      }
+      setOtp("");
+      await loadConversation();
+    } finally {
+      setCompleting(false);
+    }
+  }
+
+  async function handleSubmitReview(e: React.FormEvent) {
+    e.preventDefault();
+    if (!conversation?.booking || submittingReview) return;
+    setSubmittingReview(true);
+    setReviewError(null);
+    try {
+      const res = await fetch(`/api/bookings/${conversation.booking.id}/review`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rating: reviewRating, comment: reviewComment || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setReviewError(data.error ?? "Couldn't submit that review.");
+        return;
+      }
+      setReviewSubmitted(true);
+    } finally {
+      setSubmittingReview(false);
+    }
+  }
+
   const bannerText = conversation.booking
     ? BOOKING_STATUS_COPY[conversation.booking.status]?.({ customer: conversation.customer.name, worker: conversation.worker.name })
     : conversation.jobPost
@@ -362,8 +416,83 @@ export function ChatWindow({ conversationId, viewerId }: { conversationId: strin
               )}
             </>
           )}
-          {conversation.booking.status === "PAID" && (
-            <p className="mt-2 text-xs text-accent">Paid — this booking can no longer be cancelled.</p>
+          {conversation.booking.status === "PAID" && !isCustomer && (
+            <form onSubmit={handleCompleteJob} className="mt-3 flex flex-col gap-2 border-t border-border pt-3">
+              <p className="text-xs text-accent">Paid — this booking can no longer be cancelled.</p>
+              <label className="text-xs text-muted">
+                Ask the customer for the OTP they received, then enter it here to mark the job complete and
+                release payment.
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  inputMode="numeric"
+                  placeholder="6-digit OTP"
+                  className="w-32 rounded-md border border-muted/30 px-2 py-1.5 text-sm"
+                />
+                <button
+                  type="submit"
+                  disabled={completing || otp.length !== 6}
+                  className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                >
+                  {completing ? "Verifying…" : "Mark job complete"}
+                </button>
+              </div>
+              {completeError && <p className="text-xs text-red-600">{completeError}</p>}
+            </form>
+          )}
+          {conversation.booking.status === "PAID" && isCustomer && (
+            <p className="mt-2 text-xs text-accent">
+              Paid — job in progress. Share the OTP you received with {otherParty.name} only once the job is fully
+              done.
+            </p>
+          )}
+          {conversation.booking.status === "COMPLETED" && isCustomer && !conversation.booking.review && (
+            <div className="mt-3 flex flex-col gap-2 border-t border-border pt-3">
+              {reviewSubmitted ? (
+                <p className="text-xs text-accent">Thanks — your review has been submitted.</p>
+              ) : (
+                <form onSubmit={handleSubmitReview} className="flex flex-col gap-2">
+                  <p className="text-xs font-medium">How was the job?</p>
+                  <div className="flex gap-1">
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <button
+                        key={n}
+                        type="button"
+                        onClick={() => setReviewRating(n)}
+                        aria-label={`${n} star${n > 1 ? "s" : ""}`}
+                        className={`text-lg leading-none ${n <= reviewRating ? "text-amber-500" : "text-muted/30"}`}
+                      >
+                        ★
+                      </button>
+                    ))}
+                  </div>
+                  <textarea
+                    value={reviewComment}
+                    onChange={(e) => setReviewComment(e.target.value)}
+                    placeholder="Optional comment"
+                    rows={2}
+                    maxLength={1000}
+                    className="rounded-md border border-muted/30 px-2 py-1.5 text-sm"
+                  />
+                  {reviewError && <p className="text-xs text-red-600">{reviewError}</p>}
+                  <button
+                    type="submit"
+                    disabled={submittingReview}
+                    className="self-start rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                  >
+                    {submittingReview ? "Submitting…" : "Submit review"}
+                  </button>
+                </form>
+              )}
+            </div>
+          )}
+          {conversation.booking.status === "COMPLETED" && !isCustomer && (
+            <p className="mt-2 text-xs text-muted">This job is complete.</p>
+          )}
+          {conversation.booking.status === "COMPLETED" && isCustomer && conversation.booking.review && (
+            <p className="mt-2 text-xs text-muted">This job is complete.</p>
           )}
         </div>
       ) : (
