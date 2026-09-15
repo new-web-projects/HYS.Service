@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { rejectCrossOrigin } from "@/lib/same-origin";
 import { finalizeWithdrawalEarnings, releaseWithdrawalAllocations } from "@/lib/earnings";
 import { notify } from "@/lib/notifications";
+import { logAdminAction } from "@/lib/audit-log";
 
 const decisionSchema = z.object({
   action: z.enum(["approve", "reject"]),
@@ -15,7 +16,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const originRejection = rejectCrossOrigin(request);
   if (originRejection) return originRejection;
 
-  const { response } = await requireRoleApi(["ADMIN", "SUPER_ADMIN"]);
+  const { user, response } = await requireRoleApi(["ADMIN", "SUPER_ADMIN"]);
   if (response) return response;
 
   const { id } = await params;
@@ -63,5 +64,14 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
 
   const updated = await prisma.withdrawal.findUnique({ where: { id } });
+
+  await logAdminAction({
+    actorId: user.id,
+    action: parsed.data.action === "approve" ? "withdrawal.approve" : "withdrawal.reject",
+    entity: "Withdrawal",
+    entityId: id,
+    metadata: { amount: Number(withdrawal.amount), reason: parsed.data.rejectionReason },
+  });
+
   return NextResponse.json({ withdrawal: updated });
 }

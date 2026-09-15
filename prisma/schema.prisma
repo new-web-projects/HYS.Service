@@ -651,7 +651,7 @@ model Settings {
 
   maintenanceMode    Boolean @default(false)
   maintenanceMessage String?
-  errorRevealEnabled Boolean @default(true)
+  errorRevealEnabled Boolean @default(false)
 
   updatedAt DateTime @updatedAt
 }

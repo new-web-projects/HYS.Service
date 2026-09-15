@@ -668,3 +668,80 @@ architecture Part 3 deliberately chose and Part 8's audit round
 specifically verified against — not an appropriate unilateral fix for a
 dependency-of-a-dependency that isn't reachable in this app's own code.
 **Status:** ✅ next/nodemailer fixed and reverified · ⬜ deepmerge-ts/mysql2 — intentionally deferred, flag if this project ever adds a second, MySQL-backed data source
+
+---
+
+## Part 10 — Admin Panel + Configuration
+
+Same sandbox limitation as every prior Part — no live Postgres/Redis,
+`prisma generate` still blocked. `npm run lint` is clean across the
+whole repo (caught and fixed 9 real `react-hooks/set-state-in-effect`
+issues and 3 unescaped-apostrophe issues across the new admin pages
+along the way — same root cause each time: calling `setState`
+synchronously at the top of an effect body rather than inside a nested
+async function; fixed uniformly by wrapping each effect body in `void
+(async () => {...})()`). `npx tsc --noEmit`'s remaining errors are all
+the same two pre-existing, environment-only causes as every prior
+Part's report — zero new error categories introduced by Part 10's ~30
+new/modified files. `npm run build` reaches and fails at the identical
+single expected point, now additionally tracing through
+`proxy.ts → lib/maintenance.ts → lib/prisma.ts`, confirming the new
+maintenance-mode wiring is correctly connected into the build graph.
+
+### 30. Admin CRUD actions (customers, workers, categories, bookings, reviews)
+
+**What to test:** as an admin, ban/unban a customer or worker, verify a
+worker, approve a pending category, cancel a pre-payment booking, delete
+a review.
+**Where:** `/admin/customers[/[id]]`, `/admin/workers[/[id]]`,
+`/admin/categories`, `/admin/bookings[/[id]]`, `/admin/reviews`.
+**Expected result:** each action updates the record, notifies the
+affected user where applicable (verification, booking cancellation),
+recomputes the worker's rating on review deletion, and writes an
+`AuditLog` row.
+**Actual result:** not run — needs a live database.
+**Status:** ⬜ PASS / ⬜ FAIL
+
+### 31. Settings — SUPER_ADMIN-only write
+
+**What to test:** as a plain `ADMIN`, attempt `PATCH
+/api/admin/settings`; as `SUPER_ADMIN`, change the platform fee percent
+and confirm Part 8/9's pricing math picks it up immediately (no
+redeploy).
+**Where:** `/admin/settings`.
+**Expected result:** `ADMIN` gets 403; `SUPER_ADMIN` succeeds and the
+next booking's price breakdown reflects the new fee.
+**Actual result:** not run — needs a live database with both an ADMIN
+and a SUPER_ADMIN test account (the seed script only creates one Super
+Admin — a second, plain-ADMIN account would need to be promoted
+manually via Prisma Studio or a direct update for this specific test).
+**Status:** ⬜ PASS / ⬜ FAIL
+
+### 32. Maintenance mode, end to end
+
+**What to test:** toggle `maintenanceMode` on from `/admin/settings`,
+then visit a public page (`/`, `/services`) as a signed-out visitor;
+confirm `/admin/*` and the admin login remain reachable throughout;
+toggle it back off and confirm normal access returns (allow up to 30s
+for the cache TTL, or check immediately — the settings PATCH refreshes
+the cache synchronously on save).
+**Where:** `proxy.ts`, `lib/maintenance.ts`, `/maintenance`.
+**Expected result:** public pages show the maintenance page (URL bar
+unchanged — it's a rewrite, not a redirect); `/admin/dashboard` and
+`/admin/login` work normally the whole time; turning it off restores
+normal access.
+**Actual result:** not run — needs a live database and Redis.
+**Status:** ⬜ PASS / ⬜ FAIL
+
+### 33. Admin-cancel scope boundary
+
+**What to test:** confirm `PATCH /api/admin/bookings/[id]` succeeds for
+a booking at `PENDING_RESPONSE`/`DISCUSSING`/`PRICE_PENDING`/
+`READY_FOR_PAYMENT`, and returns 409 for one at `PAID` or `COMPLETED`.
+**Where:** `/admin/bookings/[id]`.
+**Expected result:** as above — this is a deliberate scope limit (see
+the route's own comment), not a bug, but worth confirming the boundary
+is exactly where intended.
+**Actual result:** not run — needs a live database with bookings at
+several different statuses.
+**Status:** ⬜ PASS / ⬜ FAIL

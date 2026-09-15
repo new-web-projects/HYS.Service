@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getSessionCookie } from "better-auth/cookies";
+import { getMaintenanceStatus } from "@/lib/maintenance";
 
 /**
  * Next.js 16 renamed middleware.ts to proxy.ts and moved it off the Edge
@@ -73,9 +74,26 @@ export default async function proxy(request: NextRequest) {
   }
 
   // Maintenance mode: wires to Settings.maintenanceMode via a short-TTL
-  // cached read (matching V1's 30s-cache, fail-open pattern) once Part 6+
-  // has a Settings-reading endpoint to call — not implemented yet, noted
-  // here rather than silently absent.
+  // cached read (matching V1's 30s-cache, fail-open pattern), now that
+  // Part 10 built a Settings-reading path (lib/maintenance.ts, backed by
+  // the admin settings endpoint). Admins, the admin login page, the
+  // maintenance page itself, and the API are always excluded — the API
+  // stays reachable so the maintenance page and any admin action keep
+  // working; blocking it too would risk the maintenance page itself
+  // breaking in a way that's harder to recover from than just leaving it
+  // alone.
+  const isExemptFromMaintenance =
+    pathname.startsWith(ADMIN_PREFIX) ||
+    pathname.startsWith("/api") ||
+    pathname === "/maintenance" ||
+    pathname.startsWith("/_next");
+
+  if (!isExemptFromMaintenance) {
+    const { enabled } = await getMaintenanceStatus();
+    if (enabled) {
+      return NextResponse.rewrite(new URL("/maintenance", request.url));
+    }
+  }
 
   return NextResponse.next();
 }
