@@ -20,7 +20,11 @@ const nextConfig: NextConfig = {
 
   images: {
     remotePatterns: [
-      // Part 11 (Storage): Cloudinary + S3 host patterns go here.
+      // Part 11 (Storage): cloud_name and bucket/region are both
+      // env-configured (never hardcoded), so these use wildcards rather
+      // than this deployment's specific values.
+      { protocol: "https", hostname: "res.cloudinary.com" },
+      { protocol: "https", hostname: "*.s3.*.amazonaws.com" },
     ],
   },
 

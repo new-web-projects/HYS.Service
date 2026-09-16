@@ -25,6 +25,7 @@ export default async function WorkerDashboardPage() {
     city: profile.city,
     isVerified: profile.isVerified,
     skills: profile.skills,
+    image: user.image,
   });
 
   const [pendingCount, activeBookings, unreadCount, unreadChatCount] = await Promise.all([

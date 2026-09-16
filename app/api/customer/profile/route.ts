@@ -33,12 +33,14 @@ export async function GET() {
       city: profile?.city ?? null,
       latitude: profile?.latitude ?? null,
       longitude: profile?.longitude ?? null,
+      image: user.image ?? null,
     },
     completion: customerProfileCompletion({
       phone: user.phone,
       gender: user.gender,
       addressLine: profile?.addressLine ?? null,
       city: profile?.city ?? null,
+      image: user.image,
     }),
   });
 }

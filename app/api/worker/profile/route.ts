@@ -66,6 +66,7 @@ export async function GET() {
       longitude: profile.longitude,
       documentType: profile.documentType,
       documentVerifiedAt: profile.documentVerifiedAt,
+      image: user.image ?? null,
     },
     completion: workerProfileCompletion({
       phone: user.phone,
@@ -76,6 +77,7 @@ export async function GET() {
       city: profile.city,
       isVerified: profile.isVerified,
       skills: profile.skills,
+      image: user.image,
     }),
   });
 }

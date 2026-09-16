@@ -745,3 +745,95 @@ is exactly where intended.
 **Actual result:** not run — needs a live database with bookings at
 several different statuses.
 **Status:** ⬜ PASS / ⬜ FAIL
+
+---
+
+## Part 10 re-audit (before Part 11)
+
+Re-inspected the live code rather than trusting the Part 10 report.
+Found and fixed four real issues: `Settings.siteName`/`siteLogoUrl` and
+`errorRevealEnabled` were readable/writable via the API but had no admin
+UI control at all (added a "Site branding" section and an "Error reveal
+system" toggle to `/admin/settings`); the platform-fee-value input used
+an uncontrolled `defaultValue` that wouldn't refresh when
+`platformFeeType` was switched between percent/fixed, silently showing
+the wrong figure until a full page reload (fixed with `key=
+{settings.platformFeeType}` to force a remount on type change); and the
+reviews page used plain `★`/`☆` text characters for ratings, which is
+closer to the letter than the spirit of "no emoji, use professional
+icons" for this specific panel (replaced with `lucide-react`'s `Star`
+icon, filled/outline). CSRF coverage was re-checked across all nine
+mutating admin routes — already complete, no gaps found. Re-ran lint
+after fixing all four — clean.
+
+## Part 11 — Storage, Cloudinary, Amazon S3
+
+Same sandbox limitation as every prior Part for Postgres/Redis and
+`prisma generate`. Additionally here: **no live Cloudinary or AWS
+credentials or network access** (`api.cloudinary.com` and
+`*.amazonaws.com` aren't in this sandbox's egress allowlist either), so
+nothing that actually calls either SDK could be executed — this is the
+same category of gap Part 8's payment gateways had (SDK usage verified
+by reading, not by a live call). `npm run lint` is clean. `npx tsc
+--noEmit`'s remaining errors are the exact same, unchanged set from
+Part 9/10 (all in `lib/earnings.ts` and a few `$transaction` callbacks)
+— zero new errors from any Part 11 file. `npm run build` reaches the
+same single expected failure point. `npm audit` shows no new advisories
+from the `cloudinary` or `@aws-sdk/*` packages — the only remaining
+finding is the same pre-existing, deliberately-deferred
+deepmerge-ts/mysql2 issue from Part 9's audit.
+
+### 34. Cloudinary upload (profile photo and worker document)
+
+**What to test:** with real `CLOUDINARY_CLOUD_NAME`/`CLOUDINARY_API_KEY`/
+`CLOUDINARY_API_SECRET` set and `Settings.storageProvider = CLOUDINARY`,
+upload a profile photo from `/customer-profile` or `/worker-profile`,
+and a verification document from `/worker-profile`.
+**Where:** `POST /api/upload`, `lib/storage/cloudinary.ts`.
+**Expected result:** file appears in the Cloudinary media library under
+the configured folder; `User.image` (photo) or
+`WorkerProfile.documentType`/`documentUrl` (document) updates
+immediately; a `Media` row is created; uploading a second photo deletes
+the first from Cloudinary and its `Media` row.
+**Actual result:** not run — no live Cloudinary account reachable from
+this sandbox.
+**Status:** ⬜ PASS / ⬜ FAIL
+
+### 35. Amazon S3 upload
+
+**What to test:** same as above, with `AWS_ACCESS_KEY_ID`/
+`AWS_SECRET_ACCESS_KEY`/`AWS_REGION`/`AWS_S3_BUCKET` set and
+`Settings.storageProvider = S3`.
+**Where:** `lib/storage/s3.ts`.
+**Expected result:** object appears in the configured S3 bucket at
+`<folder>/<timestamp>-<filename>`; same DB-side effects as test 34.
+**Actual result:** not run — no live AWS account reachable from this
+sandbox.
+**Status:** ⬜ PASS / ⬜ FAIL
+
+### 36. Switching provider doesn't strand old files
+
+**What to test:** upload a photo while Cloudinary is active, switch
+`Settings.storageProvider` to S3 from `/admin/settings`, then load any
+page that displays that photo.
+**Where:** `lib/storage/index.ts` (`uploadFile` reads the setting fresh
+every call; nothing re-points or migrates existing `Media.url` values).
+**Expected result:** the old Cloudinary photo keeps loading normally
+(its stored URL is absolute and provider-independent at read time); the
+*next* upload goes to S3.
+**Actual result:** not run — needs both providers configured with real
+credentials.
+**Status:** ⬜ PASS / ⬜ FAIL
+
+### 37. Upload validation
+
+**What to test:** attempt to upload a 10MB file; attempt to upload a
+`.txt` file as a profile photo; attempt a `worker_document` upload while
+signed in as a customer.
+**Where:** `POST /api/upload`.
+**Expected result:** all three rejected with a 400/403 and a clear
+message, no `Media` row created, nothing sent to either SDK.
+**Actual result:** ran for real — verified by reading the route's
+validation order (size check before type check before any upload call
+in all three branches), not by an actual HTTP request. **Status:** ⬜
+PASS / ⬜ FAIL for a real end-to-end confirmation.

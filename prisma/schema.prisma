@@ -613,9 +613,12 @@ model Media {
   publicId     String?
   mimeType     String
   sizeBytes    Int
+  purpose      String? // "profile_photo" | "worker_document" | null (general/CMS use) — Part 11
   uploadedById String?
   uploadedBy   User?           @relation(fields: [uploadedById], references: [id])
   createdAt    DateTime        @default(now())
+
+  @@index([uploadedById, purpose])
 }
 
 // ============================================================

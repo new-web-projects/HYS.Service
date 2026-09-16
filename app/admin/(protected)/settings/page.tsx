@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 type Settings = {
   siteName: string;
+  siteLogoUrl: string | null;
   platformFeeType: "percent" | "fixed";
   platformFeePercent: string;
   platformFeeFixed: string;
@@ -16,6 +17,7 @@ type Settings = {
   storageProvider: "CLOUDINARY" | "S3";
   maintenanceMode: boolean;
   maintenanceMessage: string | null;
+  errorRevealEnabled: boolean;
 };
 
 export default function AdminSettingsPage() {
@@ -72,6 +74,29 @@ export default function AdminSettingsPage() {
       {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
 
       <section className="mt-6 rounded-xl border border-border p-5">
+        <h2 className="font-medium">Site branding</h2>
+        <div className="mt-3 grid grid-cols-2 gap-4 text-sm">
+          <label className="flex flex-col gap-1">
+            Site name
+            <input
+              defaultValue={settings.siteName}
+              onBlur={(e) => save({ siteName: e.target.value })}
+              className="rounded-md border border-muted/30 px-3 py-2"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            Logo URL
+            <input
+              defaultValue={settings.siteLogoUrl ?? ""}
+              onBlur={(e) => save({ siteLogoUrl: e.target.value || null })}
+              placeholder="https://…"
+              className="rounded-md border border-muted/30 px-3 py-2"
+            />
+          </label>
+        </div>
+      </section>
+
+      <section className="mt-6 rounded-xl border border-border p-5">
         <h2 className="font-medium">Fees &amp; GST</h2>
         <div className="mt-3 grid grid-cols-2 gap-4 text-sm">
           <label className="flex flex-col gap-1">
@@ -88,6 +113,7 @@ export default function AdminSettingsPage() {
           <label className="flex flex-col gap-1">
             Platform fee value
             <input
+              key={settings.platformFeeType}
               type="number"
               step="0.01"
               defaultValue={settings.platformFeeType === "percent" ? settings.platformFeePercent : settings.platformFeeFixed}
@@ -198,6 +224,23 @@ export default function AdminSettingsPage() {
         </label>
         <p className="mt-2 text-xs text-muted">
           Admins can always sign in and reach this page, even while maintenance mode is on.
+        </p>
+      </section>
+
+      <section className="mt-6 rounded-xl border border-border p-5">
+        <h2 className="font-medium">Error reveal system</h2>
+        <label className="mt-3 flex items-center justify-between text-sm">
+          Show detailed error information
+          <input
+            type="checkbox"
+            defaultChecked={settings.errorRevealEnabled}
+            onChange={(e) => save({ errorRevealEnabled: e.target.checked })}
+            className="h-4 w-4"
+          />
+        </label>
+        <p className="mt-2 text-xs text-muted">
+          Off by default — stack traces and internal error detail should only ever be visible with this
+          deliberately switched on (Part 12 builds the capture and display itself).
         </p>
       </section>
 

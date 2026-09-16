@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getCurrentLocation } from "@/lib/geolocation";
+import { FileUploadButton } from "@/components/shared/FileUploadButton";
 
 type Category = { id: string; name: string };
 type Profile = {
@@ -20,6 +21,7 @@ type Profile = {
   rating: string;
   reviewCount: number;
   documentType: string | null;
+  image: string | null;
   addressLine: string | null;
   city: string | null;
   latitude: number | null;
@@ -169,6 +171,24 @@ export default function WorkerProfilePage() {
   return (
     <div className="max-w-md">
       <h1 className="text-2xl font-semibold">Your profile</h1>
+
+      <div className="mt-4 flex items-center gap-3">
+        {profile.image ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={profile.image} alt="" className="h-16 w-16 rounded-full object-cover" />
+        ) : (
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted/10 text-lg font-medium text-muted">
+            {profile.name.charAt(0).toUpperCase()}
+          </div>
+        )}
+        <FileUploadButton
+          purpose="profile_photo"
+          accept="image/jpeg,image/png,image/webp"
+          label="Change photo"
+          onUploaded={(url) => setProfile({ ...profile, image: url })}
+        />
+      </div>
+
       <dl className="mt-4 text-sm text-muted">
         <dt className="inline font-medium text-foreground">Name: </dt>
         <dd className="inline">{profile.name}</dd>
@@ -373,9 +393,17 @@ export default function WorkerProfilePage() {
               </option>
             ))}
           </select>
+          {form.documentType && (
+            <FileUploadButton
+              purpose="worker_document"
+              documentType={form.documentType as "AADHAAR" | "PAN" | "WORK_ID"}
+              accept="image/jpeg,image/png,image/webp,application/pdf"
+              label="Upload document"
+              onUploaded={() => setStatus("Document uploaded — awaiting admin review.")}
+            />
+          )}
           <span className="text-xs text-muted">
-            Uploading the document itself needs storage, which is Part 11 — this just
-            records which one you&apos;ll provide.
+            JPEG, PNG, WebP, or PDF, up to 5MB. A new upload always needs a fresh review.
           </span>
         </label>
 

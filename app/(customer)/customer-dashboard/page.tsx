@@ -23,6 +23,7 @@ export default async function CustomerDashboardPage() {
     gender: user.gender,
     addressLine: profile?.addressLine ?? null,
     city: profile?.city ?? null,
+    image: user.image,
   });
 
   const [recentBookings, unreadCount, unreadChatCount] = await Promise.all([

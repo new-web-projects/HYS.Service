@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Star } from "lucide-react";
 
 type Review = {
   id: string;
@@ -50,10 +51,12 @@ export default function AdminReviewsPage() {
             <li key={r.id} className="rounded-lg border border-border p-3 text-sm">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p>
-                    {"★".repeat(r.rating)}
-                    {"☆".repeat(5 - r.rating)} for {r.worker.name}
-                  </p>
+                  <div className="flex items-center gap-0.5">
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <Star key={n} className={`h-3.5 w-3.5 ${n <= r.rating ? "fill-amber-500 text-amber-500" : "text-muted/30"}`} />
+                    ))}
+                    <span className="ml-1 text-xs text-muted">for {r.worker.name}</span>
+                  </div>
                   {r.comment && <p className="mt-1 text-muted">{r.comment}</p>}
                   <p className="mt-1 text-xs text-muted">by {r.customer.name}</p>
                 </div>

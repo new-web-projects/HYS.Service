@@ -6,16 +6,15 @@ no Firebase. See the Part 1 audit/architecture document for the full
 rationale and the complete Part-by-part build plan; this README tracks the
 project as it actually exists today.
 
-**Status: Part 10 — Admin Panel + Configuration.** Everything through
-Part 9 (booking, chat, payments, earnings/withdrawals, reviews) plus a
-full admin panel — customers, workers, categories, bookings, payments,
-withdrawals, reviews, notifications, error logs/reports, audit logs,
-and platform settings (fees, GST, gateway toggles, storage provider,
-maintenance mode, now actually enforced via `proxy.ts`) — are real and
-build-verified (build fails only at the one expected, sandbox-only
-Prisma-generate point — see Verifying this Part). Document/media upload
-doesn't exist yet — Part 11 — so worker verification stays a manual
-admin toggle until then.
+**Status: Part 11 — Storage, Cloudinary, Amazon S3.** Everything through
+Part 10 (booking, chat, payments, earnings/withdrawals, reviews, the
+full admin panel) plus real file uploads — profile photos for both
+roles and worker verification documents — through an admin-selectable
+Cloudinary/S3 backend, are real and build-verified (build fails only at
+the one expected, sandbox-only Prisma-generate point — see Verifying
+this Part). Neither storage SDK's actual network calls could be
+exercised in this sandbox (no live credentials, and their domains
+aren't in its egress allowlist) — see items 34–37.
 
 ## Stack
 
@@ -33,7 +32,7 @@ admin toggle until then.
 | Reviews | Rating + comment, recomputed worker average | ✅ Part 9 |
 | Admin Panel | Customers, workers, categories, bookings, payments, withdrawals, reviews, notifications, errors, audit logs, settings | ✅ Part 10 |
 | Maintenance mode | Redis-cached read in `proxy.ts`, admin-toggled | ✅ Part 10 |
-| Storage | Cloudinary, Amazon S3 (admin-selectable) | Part 11 |
+| Storage | Cloudinary + Amazon S3, admin-selectable, signed uploads only | ✅ Part 11 |
 | Icons | `lucide-react` | ✅ Part 6 |
 
 ## Getting started
