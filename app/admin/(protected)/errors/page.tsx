@@ -1,3 +1,5 @@
+/** File Path: app/admin/(protected)/errors/page.tsx */
+
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
@@ -69,9 +71,11 @@ export default function AdminErrorsPage() {
 
       <section className="mt-8">
         <h2 className="mb-3 text-sm font-medium text-muted">System error logs ({logs.length})</h2>
-        <p className="mb-3 text-xs text-muted">
-          Empty until Part 12 (Error Reveal + Logging + Monitoring) builds the capture mechanism — this view is ready for it.
-        </p>
+        {logs.length === 0 && (
+          <p className="mb-3 text-xs text-muted">
+            Nothing captured yet — the error boundary (Part 12) logs here automatically the first time something throws.
+          </p>
+        )}
         {logs.length === 0 ? (
           <p className="text-sm text-muted">None yet.</p>
         ) : (

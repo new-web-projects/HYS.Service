@@ -1,3 +1,5 @@
+/** File Path: lib/profile-completion.ts */
+
 /**
  * V1 had a profile-completion percentage on both dashboards but this audit
  * never recorded its exact per-field weights (see the Part 1 report) — this

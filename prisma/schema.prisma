@@ -1,3 +1,5 @@
+/** File Path: prisma/schema.prisma */
+
 // HYS Services — Version 2 — Data Model
 // Part 3: complete relational schema for every domain identified in the
 // Part 1 audit. No business logic lives here — this is the data layer only;

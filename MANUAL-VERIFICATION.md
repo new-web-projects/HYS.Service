@@ -1,3 +1,5 @@
+<!-- File Path: MANUAL-VERIFICATION.md -->
+
 # Manual Verification — Parts 2, 3, 4, 5, 6 & 7
 
 Required whenever something can't be automatically verified. Everything
@@ -837,3 +839,70 @@ message, no `Media` row created, nothing sent to either SDK.
 validation order (size check before type check before any upload call
 in all three branches), not by an actual HTTP request. **Status:** ⬜
 PASS / ⬜ FAIL for a real end-to-end confirmation.
+
+---
+
+## Part 11 re-audit (before Part 12)
+
+Re-inspected the live code rather than trusting the Part 11 report.
+Found two real integration gaps: `WorkerCard.tsx` and the public worker
+profile page both already had `image` in their TypeScript types and the
+underlying APIs already selected and returned it, but neither
+component's JSX ever actually rendered it — both always fell back to
+the initials placeholder, even for a worker who'd uploaded a real photo.
+Fixed both, and while in there, upgraded all four photo-preview spots
+(those two plus the private customer/worker profile pages, which used a
+disclosed raw `<img>` shortcut) to `next/image`, now that
+`next.config.ts`'s `remotePatterns` is configured. Re-ran lint/tsc/build
+— clean, no regressions. No `prisma/migrations/` directory exists in
+this project at any point in its history (confirmed by checking) — every
+schema change across Parts 9–11 has only ever been applied to
+`schema.prisma` directly, since `prisma migrate dev` needs the
+schema-engine binary this sandbox has never been able to reach. This is
+not new to Part 11; it's the same constraint every Part has hit.
+
+## Part 12 — Error Reveal, Logging, Monitoring
+
+Same sandbox limitations as every prior Part (no live Postgres/Redis,
+`prisma generate` blocked). `npm run lint`, `npx tsc --noEmit`, and
+`npm run build` all show the identical, unchanged results from Part
+11 — zero new issues from any Part 12 file.
+
+### 38. Error capture end-to-end
+
+**What to test:** trigger a real rendering error (e.g., temporarily
+throw inside a page component) and confirm it's caught by `app/error.tsx`
+and logged.
+**Where:** `app/error.tsx`, `app/global-error.tsx`,
+`components/shared/ErrorDisplay.tsx`, `POST /api/errors/log`.
+**Expected result:** the boundary renders a friendly generic message
+(no stack trace) to a non-admin, or to an admin when
+`errorRevealEnabled` is off; a new `ErrorLog` row appears with message,
+stack, component, route, browser (User-Agent), a simple device guess,
+and the signed-in user's id/role if any.
+**Actual result:** not run — needs a live database.
+**Status:** ⬜ PASS / ⬜ FAIL
+
+### 39. Reveal gating is a real two-factor gate
+
+**What to test:** as a non-admin, confirm `GET /api/errors/reveal-status`
+always returns `{reveal: false}` regardless of the `Settings` value; as
+an admin, confirm it tracks `errorRevealEnabled` exactly.
+**Where:** `app/api/errors/reveal-status/route.ts`.
+**Expected result:** a non-admin can never learn the setting's value,
+let alone see error detail, even by calling the endpoint directly.
+**Actual result:** not run — needs a live database and both an admin and
+non-admin test session.
+**Status:** ⬜ PASS / ⬜ FAIL
+
+### 40. User error reports reach the Admin Panel
+
+**What to test:** from the error boundary's "Report this issue" form,
+submit a report (signed in and signed out); confirm it appears in
+`/admin/errors`.
+**Where:** `POST /api/error-reports`, `/admin/errors`.
+**Expected result:** an `ErrorReport` row is created (with `userId` set
+when signed in, `null` when not), status defaults to `"open"`, and it's
+listed and status-editable from the existing Part 10 admin page.
+**Actual result:** not run — needs a live database.
+**Status:** ⬜ PASS / ⬜ FAIL

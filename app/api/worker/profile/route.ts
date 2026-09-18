@@ -1,3 +1,5 @@
+/** File Path: app/api/worker/profile/route.ts */
+
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma, type TransactionClient } from "@/lib/prisma";

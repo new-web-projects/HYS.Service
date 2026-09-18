@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { BadgeCheck, Star, MapPin } from "lucide-react";
 
 export type WorkerCardData = {
@@ -34,8 +35,12 @@ export function WorkerCard({ worker }: { worker: WorkerCardData }) {
       className="group flex flex-col gap-3 rounded-xl border border-border bg-surface p-4 transition-shadow hover:shadow-md"
     >
       <div className="flex items-start gap-3">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
-          {initials(worker.name)}
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary text-sm font-semibold text-primary-foreground">
+          {worker.image ? (
+            <Image src={worker.image} alt="" width={48} height={48} className="h-full w-full object-cover" />
+          ) : (
+            initials(worker.name)
+          )}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">

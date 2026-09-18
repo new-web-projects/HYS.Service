@@ -1,3 +1,5 @@
+/** File Path: lib/storage/index.ts */
+
 import { getSettings } from "@/lib/settings";
 import { uploadToCloudinary, deleteFromCloudinary } from "@/lib/storage/cloudinary";
 import { uploadToS3, deleteFromS3 } from "@/lib/storage/s3";

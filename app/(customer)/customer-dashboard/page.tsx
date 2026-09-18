@@ -1,3 +1,5 @@
+/** File Path: app/(customer)/customer-dashboard/page.tsx */
+
 import Link from "next/link";
 import { requireRole } from "@/lib/auth-guard";
 import { prisma } from "@/lib/prisma";

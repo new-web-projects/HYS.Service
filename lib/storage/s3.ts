@@ -1,3 +1,5 @@
+/** File Path: lib/storage/s3.ts */
+
 import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 
 let client: S3Client | null = null;

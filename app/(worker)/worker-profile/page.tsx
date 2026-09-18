@@ -1,8 +1,11 @@
+/** File Path: app/(worker)/worker-profile/page.tsx */
+
 "use client";
 
 import { useEffect, useState } from "react";
 import { getCurrentLocation } from "@/lib/geolocation";
 import { FileUploadButton } from "@/components/shared/FileUploadButton";
+import Image from "next/image";
 
 type Category = { id: string; name: string };
 type Profile = {
@@ -174,8 +177,7 @@ export default function WorkerProfilePage() {
 
       <div className="mt-4 flex items-center gap-3">
         {profile.image ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={profile.image} alt="" className="h-16 w-16 rounded-full object-cover" />
+          <Image src={profile.image} alt="" width={64} height={64} className="h-16 w-16 rounded-full object-cover" />
         ) : (
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted/10 text-lg font-medium text-muted">
             {profile.name.charAt(0).toUpperCase()}

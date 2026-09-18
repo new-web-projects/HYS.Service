@@ -1,3 +1,5 @@
+/** File Path: app/api/upload/route.ts */
+
 import { NextResponse } from "next/server";
 import { requireUserApi } from "@/lib/auth-guard";
 import { prisma } from "@/lib/prisma";

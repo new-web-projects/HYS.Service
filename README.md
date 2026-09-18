@@ -1,3 +1,5 @@
+<!-- File Path: README.md -->
+
 # HYS Services — Version 2
 
 A production-grade rebuild of the HYS Services marketplace (customers booking
@@ -6,15 +8,13 @@ no Firebase. See the Part 1 audit/architecture document for the full
 rationale and the complete Part-by-part build plan; this README tracks the
 project as it actually exists today.
 
-**Status: Part 11 — Storage, Cloudinary, Amazon S3.** Everything through
-Part 10 (booking, chat, payments, earnings/withdrawals, reviews, the
-full admin panel) plus real file uploads — profile photos for both
-roles and worker verification documents — through an admin-selectable
-Cloudinary/S3 backend, are real and build-verified (build fails only at
-the one expected, sandbox-only Prisma-generate point — see Verifying
-this Part). Neither storage SDK's actual network calls could be
-exercised in this sandbox (no live credentials, and their domains
-aren't in its egress allowlist) — see items 34–37.
+**Status: Part 12 — Error Reveal, Logging, Monitoring.** Everything
+through Part 11 (booking, chat, payments, earnings, admin panel,
+storage) plus automatic error capture (a real React/Next.js error
+boundary, not a placeholder), admin-gated detail reveal, and user-facing
+error reporting reaching the admin panel are real and build-verified
+(build fails only at the one expected, sandbox-only Prisma-generate
+point — see Verifying this Part).
 
 ## Stack
 
@@ -33,6 +33,7 @@ aren't in its egress allowlist) — see items 34–37.
 | Admin Panel | Customers, workers, categories, bookings, payments, withdrawals, reviews, notifications, errors, audit logs, settings | ✅ Part 10 |
 | Maintenance mode | Redis-cached read in `proxy.ts`, admin-toggled | ✅ Part 10 |
 | Storage | Cloudinary + Amazon S3, admin-selectable, signed uploads only | ✅ Part 11 |
+| Error reveal | Real error boundary, admin+setting-gated detail, user reports | ✅ Part 12 |
 | Icons | `lucide-react` | ✅ Part 6 |
 
 ## Getting started
