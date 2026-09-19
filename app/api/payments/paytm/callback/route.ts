@@ -1,8 +1,11 @@
+/** File Path: app/api/payments/paytm/callback/route.ts */
+
 import { NextResponse } from "next/server";
 import { verifyPaytmChecksum, checkPaytmTransactionStatus } from "@/lib/payment-gateways/paytm";
 import { prisma } from "@/lib/prisma";
 import { markBookingPaid } from "@/lib/payment-gateways/mark-paid";
 import { env } from "@/lib/env";
+import { logError } from "@/lib/log-error";
 
 // This arrives as a browser form POST (the customer's browser, redirected
 // here by Paytm after checkout) — not a trusted server-to-server channel,
@@ -35,6 +38,16 @@ export async function POST(request: Request) {
     }
   } catch (err: unknown) {
     console.error("[paytm callback] processing failed:", err);
+    // This route already catches everything internally so it can always
+    // fall through to a redirect (a customer's browser is on the other
+    // end, not an API consumer) — a generic withErrorLogging wrapper
+    // would never actually see an exception here, since none escapes
+    // this catch. Logging it here directly is the correct fix instead.
+    await logError({
+      message: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+      route: "payments/paytm/callback",
+    });
   }
 
   const resultUrl = bookingId

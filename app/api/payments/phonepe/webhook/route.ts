@@ -1,9 +1,12 @@
+/** File Path: app/api/payments/phonepe/webhook/route.ts */
+
 import { NextResponse } from "next/server";
 import { verifyPhonePeWebhookAuth } from "@/lib/payment-gateways/phonepe";
 import { prisma } from "@/lib/prisma";
 import { markBookingPaid } from "@/lib/payment-gateways/mark-paid";
+import { withErrorLogging } from "@/lib/with-error-logging";
 
-export async function POST(request: Request) {
+async function handlePost(request: Request) {
   const authHeader = request.headers.get("authorization");
   if (!verifyPhonePeWebhookAuth(authHeader)) {
     return NextResponse.json({ error: "Invalid auth" }, { status: 400 });
@@ -25,3 +28,5 @@ export async function POST(request: Request) {
 
   return NextResponse.json({ ok: true });
 }
+
+export const POST = withErrorLogging(handlePost, "payments/phonepe/webhook");

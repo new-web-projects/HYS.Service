@@ -1,3 +1,5 @@
+/** File Path: app/api/bookings/[id]/payment/phonepe/route.ts */
+
 import { NextResponse } from "next/server";
 import { requireRoleApi } from "@/lib/auth-guard";
 import { prisma } from "@/lib/prisma";
@@ -6,8 +8,9 @@ import { rejectCrossOrigin } from "@/lib/same-origin";
 import { env } from "@/lib/env";
 import { validatePaymentRequest, totalAmountFor } from "@/lib/payment-gateways/validate-request";
 import { createPhonePePayment } from "@/lib/payment-gateways/phonepe";
+import { withErrorLogging } from "@/lib/with-error-logging";
 
-export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+async function handlePost(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const originRejection = rejectCrossOrigin(request);
   if (originRejection) return originRejection;
 
@@ -48,3 +51,5 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   return NextResponse.json({ redirectUrl: phonepeRedirectUrl });
 }
+
+export const POST = withErrorLogging(handlePost, "bookings/[id]/payment/phonepe");

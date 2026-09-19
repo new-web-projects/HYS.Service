@@ -1,3 +1,5 @@
+/** File Path: proxy.ts */
+
 import { NextResponse, type NextRequest } from "next/server";
 import { getSessionCookie } from "better-auth/cookies";
 import { getMaintenanceStatus } from "@/lib/maintenance";
@@ -41,6 +43,7 @@ const CHAT_PREFIX = "/chat";
 const JOB_BOARD_PREFIX = "/job-board";
 const POST_JOB_PREFIX = "/post-job";
 const NOTIFICATIONS_PREFIX = "/notifications";
+const SUPPORT_PREFIX = "/support";
 
 // worker- deliberately excludes /worker/[id] (Part 6: public worker
 // profiles) and any other /worker/... path — only the hyphenated private
@@ -53,6 +56,7 @@ function isProtectedPath(pathname: string): boolean {
   if (pathname.startsWith(JOB_BOARD_PREFIX)) return true;
   if (pathname.startsWith(POST_JOB_PREFIX)) return true;
   if (pathname.startsWith(NOTIFICATIONS_PREFIX)) return true;
+  if (pathname.startsWith(SUPPORT_PREFIX)) return true;
   return false;
 }
 

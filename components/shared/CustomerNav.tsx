@@ -1,3 +1,5 @@
+/** File Path: components/shared/CustomerNav.tsx */
+
 "use client";
 
 import { useState } from "react";
@@ -10,6 +12,7 @@ const LINKS = [
   { href: "/customer-account", label: "Account" },
   { href: "/chats", label: "Chats" },
   { href: "/notifications", label: "Notifications" },
+  { href: "/support", label: "Support" },
 ];
 
 export function CustomerNav({ userName }: { userName: string }) {

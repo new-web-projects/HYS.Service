@@ -6,10 +6,11 @@ import { prisma } from "@/lib/prisma";
 import { rejectCrossOrigin } from "@/lib/same-origin";
 import { rateLimit } from "@/lib/rate-limit";
 import { uploadFile, deleteFile, ALLOWED_IMAGE_TYPES, ALLOWED_DOCUMENT_TYPES, MAX_UPLOAD_BYTES } from "@/lib/storage";
+import { withErrorLogging } from "@/lib/with-error-logging";
 
 const DOCUMENT_TYPES = ["AADHAAR", "PAN", "WORK_ID"];
 
-export async function POST(request: Request) {
+async function handlePost(request: Request) {
   const originRejection = rejectCrossOrigin(request);
   if (originRejection) return originRejection;
 
@@ -111,5 +112,30 @@ export async function POST(request: Request) {
     return NextResponse.json({ url: stored.url, documentType });
   }
 
+  if (purpose === "support_attachment") {
+    if (!ALLOWED_DOCUMENT_TYPES.includes(file.type)) {
+      return NextResponse.json({ error: "Attachments must be JPEG, PNG, WebP, or PDF." }, { status: 400 });
+    }
+
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const stored = await uploadFile(buffer, file.type, "support-attachments", `${user.id}-${Date.now()}.${file.type.split("/")[1] ?? "bin"}`);
+
+    await prisma.media.create({
+      data: {
+        url: stored.url,
+        provider: stored.provider,
+        publicId: stored.publicId,
+        mimeType: file.type,
+        sizeBytes: stored.sizeBytes,
+        uploadedById: user.id,
+        purpose: "support_attachment",
+      },
+    });
+
+    return NextResponse.json({ url: stored.url });
+  }
+
   return NextResponse.json({ error: "Unknown upload purpose." }, { status: 400 });
 }
+
+export const POST = withErrorLogging(handlePost, "upload");

@@ -906,3 +906,87 @@ when signed in, `null` when not), status defaults to `"open"`, and it's
 listed and status-editable from the existing Part 10 admin page.
 **Actual result:** not run — needs a live database.
 **Status:** ⬜ PASS / ⬜ FAIL
+
+---
+
+## Part 12 re-audit (before Part 13)
+
+Re-inspected the live code rather than trusting the Part 12 report.
+Found two real gaps: "File" and "Function" are explicit master-prompt
+`ErrorLog` capture fields with schema columns since Part 3, but nothing
+actually populated them — fixed by adding best-effort V8 stack-frame
+parsing to `lib/log-error.ts` (`extractTopFrame`), used automatically by
+every caller. Second, "work correctly with: Server APIs" was true
+architecturally but not true in practice — no server-side route ever
+called the logging system, so a genuine unhandled exception in an API
+route produced only an opaque 500 with no record anywhere. Fixed with a
+new `lib/with-error-logging.ts` wrapper, applied to the 7 routes with
+real external-call risk (the three payment-initiation routes, Razorpay
+verify, both webhooks, and the upload route) plus a direct fix to the
+Paytm callback route's own existing catch block (it already swallows
+exceptions internally to guarantee a redirect, so a generic wrapper
+would never have seen anything — logging directly at its existing catch
+site was the correct fix there instead). While building the wrapper,
+caught and fixed a genuine new TypeScript error the wrapper's own
+generic signature introduced (a non-generic `Record<string,string>`
+params type doesn't structurally match a specific route's `{id:
+string}` params type in the contravariant position TypeScript checks
+handler parameters at) — made `withErrorLogging` generic over the
+params shape and re-verified clean. Re-ran lint/tsc/build after every
+fix — all clean, zero regressions.
+
+## Part 13 — Customer Support + Ticket System
+
+Same sandbox limitations as every prior Part. `npm run lint` caught one
+real unescaped-apostrophe issue in the new-ticket page, fixed. `npx tsc
+--noEmit`'s remaining errors are the same unchanged class from every
+prior Part (implicit-any on inline `$transaction` callbacks, caused by
+the missing generated client) — now also appearing once in
+`app/api/support-tickets/route.ts`, which uses the identical pattern
+already present elsewhere in the codebase; not a new category of issue.
+`npm run build` reaches the same single expected point. `npm audit`
+unchanged.
+
+### 41. Ticket number generation is race-safe
+
+**What to test:** create several tickets in quick succession (ideally
+concurrently) and confirm no two ever get the same `ticketNumber`.
+**Where:** `POST /api/support-tickets`, `SupportTicket.ticketSequence`
+(a genuine Postgres-native autoincrement column, not an app-level
+counter).
+**Expected result:** sequential, gap-free-per-success `HYS-000001`,
+`HYS-000002`, … — Postgres's own sequence guarantees this is race-safe
+without any additional locking in the route itself.
+**Actual result:** not run — needs a live Postgres database.
+**Status:** ⬜ PASS / ⬜ FAIL
+
+### 42. Internal notes never reach the requester
+
+**What to test:** as staff, add an internal note to a ticket; as the
+requester, view the same ticket via `GET /api/support-tickets/[id]`
+(not the admin endpoint).
+**Where:** `app/api/support-tickets/[id]/route.ts`'s `isStaff`-gated
+`where` clause on the messages include.
+**Expected result:** the requester's response never contains the
+internal note, even though it's the exact same underlying endpoint
+staff also use to view the ticket.
+**Actual result:** not run — needs a live database and both a requester
+and a staff session.
+**Status:** ⬜ PASS / ⬜ FAIL
+
+### 43. Full ticket lifecycle
+
+**What to test:** create a ticket as a customer; reply as staff (ticket
+→ WAITING_FOR_CUSTOMER); reply as the customer (ticket → IN_PROGRESS);
+resolve and close as staff; confirm the customer can no longer reply
+once CLOSED.
+**Where:** the status-transition logic in
+`app/api/support-tickets/[id]/messages/route.ts` and the CLOSED check
+there.
+**Expected result:** exactly the status flow above; the reply form
+itself disappears client-side once CLOSED, and the API independently
+rejects a reply attempt with 409 regardless.
+**Actual result:** not run — needs a live database.
+**Status:** ⬜ PASS / ⬜ FAIL
+**Actual result:** not run — needs a live database.
+**Status:** ⬜ PASS / ⬜ FAIL

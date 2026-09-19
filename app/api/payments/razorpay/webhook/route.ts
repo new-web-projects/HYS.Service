@@ -1,12 +1,15 @@
+/** File Path: app/api/payments/razorpay/webhook/route.ts */
+
 import { NextResponse } from "next/server";
 import { verifyRazorpayWebhookSignature } from "@/lib/payment-gateways/razorpay";
 import { prisma } from "@/lib/prisma";
 import { markBookingPaid } from "@/lib/payment-gateways/mark-paid";
+import { withErrorLogging } from "@/lib/with-error-logging";
 
 // Webhooks are called by Razorpay's servers directly, never by a
 // browser — same-origin/CSRF checks don't apply here, signature
 // verification is the actual authentication mechanism for this route.
-export async function POST(request: Request) {
+async function handlePost(request: Request) {
   const rawBody = await request.text();
   const signature = request.headers.get("x-razorpay-signature");
   if (!signature || !verifyRazorpayWebhookSignature(rawBody, signature)) {
@@ -41,3 +44,5 @@ export async function POST(request: Request) {
 
   return NextResponse.json({ ok: true });
 }
+
+export const POST = withErrorLogging(handlePost, "payments/razorpay/webhook");

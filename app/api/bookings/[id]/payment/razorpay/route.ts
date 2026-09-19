@@ -1,3 +1,5 @@
+/** File Path: app/api/bookings/[id]/payment/razorpay/route.ts */
+
 import { NextResponse } from "next/server";
 import { requireRoleApi } from "@/lib/auth-guard";
 import { prisma } from "@/lib/prisma";
@@ -5,8 +7,9 @@ import { rateLimit } from "@/lib/rate-limit";
 import { rejectCrossOrigin } from "@/lib/same-origin";
 import { validatePaymentRequest, totalAmountFor } from "@/lib/payment-gateways/validate-request";
 import { createRazorpayOrder } from "@/lib/payment-gateways/razorpay";
+import { withErrorLogging } from "@/lib/with-error-logging";
 
-export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+async function handlePost(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const originRejection = rejectCrossOrigin(request);
   if (originRejection) return originRejection;
 
@@ -42,3 +45,5 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   return NextResponse.json({ orderId, keyId, amountPaise, currency: "INR" });
 }
+
+export const POST = withErrorLogging(handlePost, "bookings/[id]/payment/razorpay");

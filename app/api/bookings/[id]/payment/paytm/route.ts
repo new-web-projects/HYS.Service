@@ -1,3 +1,5 @@
+/** File Path: app/api/bookings/[id]/payment/paytm/route.ts */
+
 import { NextResponse } from "next/server";
 import { requireRoleApi } from "@/lib/auth-guard";
 import { prisma } from "@/lib/prisma";
@@ -6,8 +8,9 @@ import { rejectCrossOrigin } from "@/lib/same-origin";
 import { env } from "@/lib/env";
 import { validatePaymentRequest, totalAmountFor } from "@/lib/payment-gateways/validate-request";
 import { initiatePaytmTransaction } from "@/lib/payment-gateways/paytm";
+import { withErrorLogging } from "@/lib/with-error-logging";
 
-export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+async function handlePost(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const originRejection = rejectCrossOrigin(request);
   if (originRejection) return originRejection;
 
@@ -47,3 +50,5 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   // the client builds that form from these three fields.
   return NextResponse.json({ orderId, txnToken, paymentPageUrl, mid });
 }
+
+export const POST = withErrorLogging(handlePost, "bookings/[id]/payment/paytm");

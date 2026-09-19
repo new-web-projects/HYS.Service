@@ -1,3 +1,5 @@
+/** File Path: components/shared/AdminNav.tsx */
+
 "use client";
 
 import { useState } from "react";
@@ -15,6 +17,7 @@ import {
   AlertTriangle,
   ScrollText,
   Settings,
+  LifeBuoy,
   Menu,
   X,
 } from "lucide-react";
@@ -29,6 +32,7 @@ const LINKS = [
   { href: "/admin/payments", label: "Payments", icon: CreditCard },
   { href: "/admin/withdrawals", label: "Withdrawals", icon: Wallet },
   { href: "/admin/reviews", label: "Reviews", icon: Star },
+  { href: "/admin/support", label: "Support", icon: LifeBuoy },
   { href: "/admin/notifications", label: "Notifications", icon: Bell },
   { href: "/admin/errors", label: "Errors", icon: AlertTriangle },
   { href: "/admin/audit-logs", label: "Audit logs", icon: ScrollText },

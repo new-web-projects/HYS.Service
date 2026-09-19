@@ -1,3 +1,5 @@
+/** File Path: components/shared/WorkerNav.tsx */
+
 "use client";
 
 import { useState } from "react";
@@ -13,6 +15,7 @@ const LINKS = [
   { href: "/job-board", label: "Job board" },
   { href: "/chats", label: "Chats" },
   { href: "/notifications", label: "Notifications" },
+  { href: "/support", label: "Support" },
 ];
 
 export function WorkerNav({ userName }: { userName: string }) {

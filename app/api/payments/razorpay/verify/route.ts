@@ -1,3 +1,5 @@
+/** File Path: app/api/payments/razorpay/verify/route.ts */
+
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireUserApi } from "@/lib/auth-guard";
@@ -5,6 +7,7 @@ import { rejectCrossOrigin } from "@/lib/same-origin";
 import { prisma } from "@/lib/prisma";
 import { verifyRazorpaySignature } from "@/lib/payment-gateways/razorpay";
 import { markBookingPaid } from "@/lib/payment-gateways/mark-paid";
+import { withErrorLogging } from "@/lib/with-error-logging";
 
 const verifySchema = z.object({
   razorpay_order_id: z.string().min(1),
@@ -12,7 +15,7 @@ const verifySchema = z.object({
   razorpay_signature: z.string().min(1),
 });
 
-export async function POST(request: Request) {
+export async function handlePost(request: Request) {
   const originRejection = rejectCrossOrigin(request);
   if (originRejection) return originRejection;
 
@@ -46,3 +49,5 @@ export async function POST(request: Request) {
 
   return NextResponse.json({ status: "PAID", otp: result.otp, alreadyProcessed: result.alreadyProcessed });
 }
+
+export const POST = withErrorLogging(handlePost, "payments/razorpay/verify");

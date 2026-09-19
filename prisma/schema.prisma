@@ -561,9 +561,14 @@ model Notification {
 
 model SupportTicket {
   id           String       @id @default(cuid())
-  /// e.g. HYS-000001 — generation is Part 13's job (Postgres sequence +
-  /// zero-padded format); this column just reserves the unique slot.
+  /// e.g. HYS-000001 — generated in the create route from ticketSequence
+  /// once Postgres assigns it (Part 13). This column stores the final
+  /// formatted, human-facing number.
   ticketNumber String       @unique
+  /// Postgres-native autoincrement (a real sequence under the hood) —
+  /// race-safe by construction, no separate counter table needed.
+  /// ticketNumber is derived from this once, right after creation.
+  ticketSequence Int        @default(autoincrement())
   requesterId  String
   requester    User         @relation("TicketRequester", fields: [requesterId], references: [id])
   assignedToId String?

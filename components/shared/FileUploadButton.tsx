@@ -11,7 +11,7 @@ export function FileUploadButton({
   label,
   onUploaded,
 }: {
-  purpose: "profile_photo" | "worker_document";
+  purpose: "profile_photo" | "worker_document" | "support_attachment";
   documentType?: "AADHAAR" | "PAN" | "WORK_ID";
   accept: string;
   label: string;
